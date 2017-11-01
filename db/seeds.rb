@@ -1,7 +1,7 @@
 require 'random_data'
 
  # Create Posts
- Post.find_or_create_by!(title: "Third Post", body: "This is the third post in our system")
+ post = Post.find_or_create_by!(title: "Third Post", body: "This is the third post in our system")
  
  50.times do
  # #1
@@ -12,6 +12,7 @@ require 'random_data'
    )
  end
  posts = Post.all
+ 
  
  # Create Comments
  post.comments.find_or_create_by!(body: "Third Comment!")
