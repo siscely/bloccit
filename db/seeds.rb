@@ -6,10 +6,13 @@ require 'random_data'
  50.times do
  
    Post.create!(
- # #2
+ 
      title:  RandomData.random_sentence,
      body:   RandomData.random_paragraph
    )
+   if post.id % 5 == 0
+    Post.title = "SPAM"
+   end
  end
  posts = Post.all
  
