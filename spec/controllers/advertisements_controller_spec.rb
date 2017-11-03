@@ -19,7 +19,7 @@ RSpec.describe AdvertisementsController, type: :controller do
 
      describe "GET #show" do
       it "returns http success" do
-        get :show
+        get :show, params: {id: my_ad.id}
         expect(response).to have_http_status(:success)
       end
  
@@ -32,7 +32,7 @@ RSpec.describe AdvertisementsController, type: :controller do
  
       it "assigns my_ad to @advertisement" do
         get :show, params: {id: my_ad.id}
-        expect(assigns(:advertisement)).to eq([my_ad])
+        expect(assigns(:advertisement)).to eq(my_ad)
       end
     end
     
@@ -58,18 +58,18 @@ RSpec.describe AdvertisementsController, type: :controller do
     describe "POST create" do
  
       it "increases the number of Advertisement by 1" do
-        expect{ advertisement :create, params: { advertisement: { title: "Anacin", copy: "Fast, fast, incredibly fast relief", price: 10 } } }.to change(Advertisement,:count).by(1)
+        expect{ post :create, params: { advertisement: { title: "Anacin", copy: "Fast, fast, incredibly fast relief", price: 10 } } }.to change(Advertisement,:count).by(1)
       end
  
  
       it "assigns the new advertisement to @advertisement" do
-        advertisement :create, params: {advertisement: {title: "Anacin", copy:  "Fast, fast, incredibly fast relief", price: 10 } }
+        post :create, params: {advertisement: {title: "Anacin", copy:  "Fast, fast, incredibly fast relief", price: 10 } }
         expect(assigns(:advertisement)).to eq Advertisement.last
       end
  
  
       it "redirects to the advertisement" do
-        advertisement :create, params: {advertisement: {title: "Anacin", copy:  "Fast, fast, incredibly fast relief", price: 10  } }
+        post :create, params: {advertisement: {title: "Anacin", copy:  "Fast, fast, incredibly fast relief", price: 10  } }
         expect(response).to redirect_to Advertisement.last
       end
     end
