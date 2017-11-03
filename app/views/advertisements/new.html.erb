@@ -22,6 +22,10 @@
          <%= f.text_area :copy, rows: 8, class: 'form-control', placeholder: "Enter advertisement body" %>
        </div>
        <div class="form-group">
+         <%= f.label :price %>
+         <%= f.number_field :price, rows: 8, class: 'form-control', placeholder: 99 %>
+       </div>
+       <div class="form-group">
  
          <%= f.submit "Save", class: 'btn btn-success' %>
        </div>
