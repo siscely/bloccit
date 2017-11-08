@@ -8,6 +8,16 @@ require 'random_data'
    )
  end
  topics = Topic.all
+ 
+ # Create sponsoredposts
+ 15.times do
+   SponsoredPost.create!(
+     topic:  topics.sample,
+     title:  RandomData.random_sentence,
+     body:   RandomData.random_paragraph
+   )
+ end
+ sponsoredpost = SponsoredPost.all
 
  # Create Posts
  post = Post.find_or_create_by!(title: "Third Post", body: "This is the third post in our system")
