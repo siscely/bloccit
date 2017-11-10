@@ -8,8 +8,8 @@ class UsersController < ApplicationController
      @user = User.new
      @user.name = params[:user][:name]
      @user.email = params[:user][:email]
-     
-     flash[:notice] = "Sign Up Confirmation \n Are you sure these values are correct? \n #{@user.name}! #{@user.email}!"
+     @user.password = params[:user][:password]
+     @user.password_confirmation = params[:user][:password_confirmation]
 
   end
    
