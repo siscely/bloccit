@@ -3,6 +3,16 @@ class UsersController < ApplicationController
      @user = User.new
    end
    
+   def confirm
+ 
+     @user = User.new
+     @user.name = params[:user][:name]
+     @user.email = params[:user][:email]
+     
+     flash[:notice] = "Sign Up Confirmation \n Are you sure these values are correct? \n #{@user.name}! #{@user.email}!"
+
+  end
+   
    def create
  
      @user = User.new

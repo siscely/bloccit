@@ -14,6 +14,10 @@
            </ul>
          </div>
        <% end %>
+       
+       <%= form_for @user, url: { action: :confirm } do |f| %>
+        <%= button_to "Yes", {controller: "users", action: "create", params: params}, class: 'btn btn-success' %>
+        <% end %>
  
        <%= form_group_tag(@user.errors[:name]) do %>
          <%= f.label :name %>
