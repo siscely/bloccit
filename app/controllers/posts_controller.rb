@@ -1,4 +1,6 @@
 class PostsController < ApplicationController
+    
+    before_action :require_sign_in, except: :show
   
   def create
  
@@ -7,6 +9,7 @@ class PostsController < ApplicationController
      @post.body = params[:post][:body]
      @topic = Topic.find(params[:topic_id])
      @post.topic = @topic
+     @post.user = current_user
 
 
  
