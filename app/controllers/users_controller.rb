@@ -3,8 +3,8 @@ class UsersController < ApplicationController
      @user = User.new
    end
    
-<<<<<<< HEAD
-=======
+
+
    def confirm
  
      @user = User.new
@@ -15,7 +15,7 @@ class UsersController < ApplicationController
 
   end
    
->>>>>>> checkpoint-25
+
    def create
  
      @user = User.new
