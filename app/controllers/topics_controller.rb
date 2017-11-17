@@ -2,7 +2,11 @@ class TopicsController < ApplicationController
  
  before_action :require_sign_in, except: [:index, :show]
  
+<<<<<<< HEAD
  before_action :authorize_create, only: [:new, :create, :destroy]
+=======
+ before_action :authorize_user, except: [:index, :show, :create]
+>>>>>>> checkpoint-28
    
     def index
      @topics = Topic.all
@@ -63,9 +67,17 @@ class TopicsController < ApplicationController
      params.require(:topic).permit(:name, :description, :public)
    end
    
+<<<<<<< HEAD
    def authorize_create
      unless current_user.admin?
        flash[:alert] = "You must be an admin to do that."
+=======
+   
+ 
+   def authorize_user
+     unless current_user.admin? || current_user.moderator?
+       flash[:alert] = "You must be an admin or moderator to do that."
+>>>>>>> checkpoint-28
        redirect_to topics_path
      end
    end

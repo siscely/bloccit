@@ -4,6 +4,7 @@ RSpec.describe User, type: :model do
   let(:user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "password") }
   
    it { is_expected.to have_many(:posts) }
+   it { is_expected.to have_many(:comments) }
    # Shoulda tests for name
    it { is_expected.to validate_presence_of(:name) }
    it { is_expected.to validate_length_of(:name).is_at_least(1) }
@@ -21,7 +22,7 @@ RSpec.describe User, type: :model do
  
    describe "attributes" do
        
-       it "responds to role" do
+     it "responds to role" do
        expect(user).to respond_to(:role)
      end
  
@@ -33,6 +34,10 @@ RSpec.describe User, type: :model do
  
      it "responds to member?" do
        expect(user).to respond_to(:member?)
+     end
+       
+     it "responds to moderator?" do
+       expect(user).to respond_to(:moderator?)
      end
    end
 
@@ -51,6 +56,10 @@ RSpec.describe User, type: :model do
        it "returns false for #admin?" do
          expect(user.admin?).to be_falsey
        end
+       
+       it "returns false for #moderator?" do
+         expect(user.moderator?).to be_falsey
+       end
      end
  
  
@@ -61,6 +70,10 @@ RSpec.describe User, type: :model do
  
        it "returns false for #member?" do
          expect(user.member?).to be_falsey
+       end
+       
+       it "returns false for #moderator?" do
+         expect(user.moderator?).to be_falsey
        end
  
        it "returns true for #admin?" do

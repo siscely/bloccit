@@ -5,6 +5,7 @@ include SessionsHelper
 RSpec.describe PostsController, type: :controller do
   let(:my_user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
   let(:other_user) { User.create!(name: RandomData.random_name, email: RandomData.random_email, password: "helloworld", role: :member) }
+  let(:other_user_1) { User.create!(name: RandomData.random_name, email: RandomData.random_email, password: "helloworld", role: :member) }
   let (:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: my_user) }
 
@@ -370,4 +371,54 @@ RSpec.describe PostsController, type: :controller do
       end
     end
   end
+  
+  context "moderator user doing CRUD on a post they don't own" do
+    before do
+      other_user_1.moderator!
+      create_session(other_user_1)
+    end
+
+     describe "GET edit" do
+      it "returns http success" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #edit view" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :edit
+      end
+
+      it "assigns post to be updated to @post" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        post_instance = assigns(:post)
+
+        expect(post_instance.id).to eq my_post.id
+        expect(post_instance.title).to eq my_post.title
+        expect(post_instance.body).to eq my_post.body
+      end
+    end
+
+    describe "PUT update" do
+      it "updates post with expected attributes" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+
+        updated_post = assigns(:post)
+        expect(updated_post.id).to eq my_post.id
+        expect(updated_post.title).to eq new_title
+        expect(updated_post.body).to eq new_body
+      end
+
+      it "redirects to the updated post" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+        expect(response).to redirect_to [my_topic, my_post]
+      end
+    end
   end
+end
