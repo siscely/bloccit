@@ -18,7 +18,7 @@ class User < ApplicationRecord
 
  
    has_secure_password
-   enum role: [:member, :admin, :moderator]
+   enum role: [:member, :admin]
 
    
    def format_name
