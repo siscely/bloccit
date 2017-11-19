@@ -32,7 +32,7 @@ require 'random_data'
  sponsoredpost = SponsoredPost.all
 
  # Create Posts
- post = Post.find_or_create_by!(title: "Third Post", body: "This is the third post in our system", topic: topics.first, user: users.first)
+ # post = Post.find_or_create_by!(title: "Third Post", body: "This is the third post in our system", topic: topics.first, user: users.first)
  
  50.times do
  
@@ -48,7 +48,7 @@ require 'random_data'
  
  
  # Create Comments
- post.comments.find_or_create_by!(body: "Third Comment!")
+ # post.comments.find_or_create_by!(body: "Third Comment!")
  
  100.times do
    Comment.create!(

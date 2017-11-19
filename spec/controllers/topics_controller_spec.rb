@@ -276,7 +276,7 @@ RSpec.describe TopicsController, type: :controller do
    
    context "moderator user" do
     before do
-      user = User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld", role: :admin)
+      user = User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld", role: :moderator)
       create_session(user)
     end
     
