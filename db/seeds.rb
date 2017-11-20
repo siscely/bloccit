@@ -53,7 +53,7 @@ require 'random_data'
  
  
  # Create Comments
- post.comments.find_or_create_by!(body: "Third Comment!")
+ post.comments.find_or_create_by!(body: "Third Comment!", user: users.first)
  
  100.times do
    Comment.create!(
