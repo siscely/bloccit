@@ -24,7 +24,4 @@ before_action :require_sign_in
      end
    end
    
-   def create_vote
-     @vote = user.votes.create(value: 1, post: self)
-    end
-end
+ end
