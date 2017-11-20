@@ -13,6 +13,10 @@ class Post < ApplicationRecord
     validates :topic, presence: true
     validates :user, presence: true
     
+    def after_create
+        @vote = User.votes.create(value: 1, post: self)
+    end
+    
     def up_votes
  
      votes.where(value: 1).count
