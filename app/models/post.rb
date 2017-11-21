@@ -1,7 +1,9 @@
 class Post < ApplicationRecord
     belongs_to :topic
     belongs_to :user
-
+    after_create :create, :send_favorite_emails
+ 
+   
     has_many :comments, dependent: :destroy
     
     has_many :votes, dependent: :destroy
@@ -34,5 +36,25 @@ class Post < ApplicationRecord
      new_rank = points + age_in_days
      update_attribute(:rank, new_rank)
    end
-
+   
+   private
+   def create
+ 
+     post = Post.find(params[:post_id])
+     favorite = current_user.favorites.build(post: post)
+ 
+     if favorite.save
+       flash[:notice] = "Post favorited."
+     else
+       flash[:alert] = "Favoriting failed."
+     end
+ 
+ 
+     redirect_to [post.topic, post]
+   end
+   
+   
+   def send_favorite_emails
+            FavoriteMailer.new_post(favorite.user, post, self).deliver_now
+    end
 end
