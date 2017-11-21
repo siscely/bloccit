@@ -1,7 +1,7 @@
 class Post < ApplicationRecord
     belongs_to :topic
     belongs_to :user
-    after_create :create, :send_favorite_emails
+    after_create :create_favorite
  
    
     has_many :comments, dependent: :destroy
@@ -54,7 +54,8 @@ class Post < ApplicationRecord
    end
    
    
-   def send_favorite_emails
-            FavoriteMailer.new_post(favorite.user, post, self).deliver_now
+   def create_favorite
+       Favorite.create(post: self, user: self.user)
+            FavoriteMailer.new_post(self).deliver_now
     end
 end

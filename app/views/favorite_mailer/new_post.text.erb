@@ -1,8 +1,2 @@
-New favorite to "<%= @post.title %>"
- <%= "=" * (@post.title.length + 12) %>
- 
- By: <%= @post.user.name %>
- 
- <%= @post.body %>
- 
- Visit online at: <%= topic_post_url(@post.topic, @post, anchor: "favorite-#{@post.id}") %>
+You're now following "<%= @post.title %>", you w ill be notified of all comments. If you don't wish to receive further notifications, unfavorite your
+     <%= link_to "post", topic_post_url(@post.topic, @post) %>.

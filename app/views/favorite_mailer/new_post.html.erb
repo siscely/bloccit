@@ -3,16 +3,10 @@
      <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
    </head>
    <body>
-     <h1>New favorite to "<%= @post.title %>"</h1>
-     <small>
-       By: <%= @post.user.name %>
-     </small>
-     <p>
-       <%= @post.body %>
-     </p>
-     <p>
- 
-       <%= link_to "View favorite on site", topic_post_url(@post.topic, @post, anchor: "favorite-#{@post.id}") %>
+     <h1>You're now following "<%= @post.title %>", you w ill be notified of all comments. If you don't wish to receive further notifications, unfavorite your
+     <%= link_to "post", topic_post_url(@post.topic, @post) %>.</h1>
+     
+       <%= link_to "View Post on site", topic_post_url(@post.topic, @post) %>
      </p>
    </body>
  </html>
