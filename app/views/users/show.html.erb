@@ -14,16 +14,19 @@
          <h2 class="media-heading"><%= @user.name %></h2>
          <small>
            <%= pluralize(@user.posts.count, 'post') %>,
+           <%= pluralize(@user.votes.count, 'post') %>,
            <%= pluralize(@user.comments.count, 'comment') %>
          </small>
        </div>
      </div>
+     <% if current_user %>
+       <%= render partial: 'favorites/favorite', locals: { post: @post } %>
+     <% end %>
    </div>
  </div>
  
  
- <h2>Posts</h2>
- <%= render @user.posts %>
+  <%= render :detect_post_or_comment @user.posts %>
  
- <h2>Comments</h2>
- <%= render @user.comments %>
+ 
+ <%= render :detect_post_or_comment @user.comments %>

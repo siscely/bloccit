@@ -39,4 +39,13 @@ class UsersController < ApplicationController
      @user = User.find(params[:id])
      @posts = @user.posts.visible_to(current_user)
    end
+   
+   def detect_post_or_comment
+    post = current_user.Post.find(params[:id])
+    comment = current_user.Comment.find(params[:id])
+     unless current_user == comment.user || post.user?
+     flash[:alert] = "{user.name} has not submitted any posts yet."
+     redirect_to [post.topic, post]
+    end
+ end
 end
