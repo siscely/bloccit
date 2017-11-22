@@ -26,6 +26,7 @@ class UsersController < ApplicationController
  
  
      if @user.save
+       create_session(@user)
        flash[:notice] = "Welcome to Bloccit #{@user.name}!"
        redirect_to root_path
      else
@@ -36,5 +37,6 @@ class UsersController < ApplicationController
    
     def show
      @user = User.find(params[:id])
+     @posts = @user.posts.visible_to(current_user)
    end
 end
