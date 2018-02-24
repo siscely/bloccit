@@ -668,3 +668,119 @@ app/models/post.rb
  ```
 The has_many method allows a post instance to have many comments related to it, and also provides methods that allow us to retrieve comments that belong to a post.
 
+The Rails console loads our application in a shell, and provides access to Rails methods, app-specific methods, persisted data, and Ruby. To launch the console from the command line, enter:
+
+Terminal
+$ rails c
+And you should see the following message and prompt, or something very similar:
+
+Console
+Loading development environment (Rails 4.2.5)
+2.2.1 :001 >
+Because the console provides access to our application code, we can create posts and comments within the console, from the command line. Let's create a new post instance:
+
+Console
+> Post.create(title: "First Post", body: "This is the first post in our system")
+Creating a post would not be possible in IRB because posts and comments are specific to our application. Ruby (which is the only language that IRB understands) would not know what a "Post" is, and would throw an error.
+
+```
+Console
+   (0.1ms)  begin transaction
+ # #1
+  SQL (0.8ms)  INSERT INTO "posts" ("title", "body", "created_at", "updated_at") VALUES (?, ?, ?, ?)  [["title", "First Post"], ["body", "This is the first post in our system"], ["created_at", "2015-06-10 18:30:38.756344"], ["updated_at", "2015-06-10 18:30:38.756344"]]
+ # #2
+   (0.6ms)  commit transaction
+ => #<Post id: 1, title: "First Post", body: "This is the first post in our system", created_at: "2015-06-10 18:30:38", updated_at: "2015-06-10 18:30:38">
+ ```
+At #1, we add a row to the posts table using the INSERT INTO SQL statement.  "title", "body", "created_at", "updated_at", are the column names (i.e. attributes) on the posts table. The list of values after VALUES (?, ?, ?, ?) in brackets ([["title", "First Post"] ... ]) are values that correspond to the column names. The created_at and updated_at columns are default columns that Rails adds automatically, which is why we didn't need to specify them in the create call.
+
+At #2, we commit the transaction which executes INSERT INTO. Commit statements end a SQL transaction and make all changes permanent. A transaction is one or more SQL statements that a database treats as a single unit.
+
+We now have one row in the posts table.
+
+### Retrieving Information
+It is important to remember that a row in a table corresponds to an instance of a class. Like a class instance, a row in a database table is unique. ORM allows us to retrieve information stored in a row and map it to a class instance that we create in our application. Let's retrieve a row from the posts table and map it to an instance of the Post class:
+
+Console
+```
+> post = Post.first
+
+  # #3
+  Post Load (0.2ms)  SELECT  "posts".* FROM "posts"  ORDER BY "posts"."id" ASC LIMIT 1
+ => #<Post id: 1, title: "First Post", body: "This is the first post in our system", created_at: "2015-06-10 18:30:38", updated_at: "2015-06-10 18:30:38">
+ ```
+At #3 Post.first executes a SELECT SQL statement and fetches the first row from the posts table. SELECT is used to fetch a set of records from one or more tables.
+
+After the first row is fetched, ActiveRecord converts the row's data into an instance of  Post, or a post object. This post object is then assigned to the post variable.  ActiveRecord makes this conversion from a database record to Ruby object possible.
+
+Now that our instance is assigned, print it to view its value:
+
+Console
+```
+> post
+ => #<Post id: 1, title: "First Post", body: "This is the first post in our system", created_at: "2015-06-10 18:30:38", updated_at: "2015-06-10 18:30:38">
+ ```
+post is populated by the first row of data (currently the only row of data) in our posts database table.
+
+Let's add a comment to the post we retrieved:
+
+Console
+```
+> post.comments.create(body: "First comment!")
+   (0.1ms)  begin transaction
+  SQL (0.4ms)  INSERT INTO "comments" ("body", "post_id", "created_at", "updated_at") VALUES (?, ?, ?, ?)  [["body", "First comment!"], ["post_id", 1], ["created_at", "2015-06-10 19:50:29.881194"], ["updated_at", "2015-06-10 19:50:29.881194"]]
+   (0.7ms)  commit transaction
+ => #<Comment id: 1, body: "First comment!", post_id: 1, created_at: "2015-06-10 19:50:29", updated_at: "2015-06-10 19:50:29">
+ ```
+Because we chained the method calls - post.comments.create - ActiveRecord interpreted this as "create a new comment for the first post". If we didn't specify the post to create a comment for, ActiveRecord would not have been able to update the  post_id, which is critical because it defines the relationship between posts and comments. Inspect post.comments:
+
+Console
+```
+> post.comments
+Comment Load (2.6ms)  SELECT "comments".* FROM "comments" WHERE "comments"."post_id" = ?  [["post_id", 1]]
+=> #<ActiveRecord::Associations::CollectionProxy [#<Comment id: 1, body: "First comment!", post_id: 1, created_at: "2015-07-21 12:00:56", updated_at: "2015-07-21 12:00:56">]>
+post.comments returns an ActiveRecord::Association because a comment depends on a given post. We'll explore associations in the next section.
+```
+
+ActiveRecord Associations
+We defined the relationships between posts and comments in their respective classes, with has_many and belongs_to. These relationships are known as associations.
+
+The belongs_to :post declaration in Comment generates a post method for each comment, giving us the ability to call .post on an instance of Comment and retrieve the associated post. The database stores this relationship, by keeping a post_id (foreign key) for each comment.
+
+Retrieve the first comment in the comments table, and assign it to a comment variable:
+
+Console
+```
+> comment = Comment.first
+```
+Fetch the post that is associated with comment:
+
+Console
+```
+> comment.post
+  Post Load (0.4ms)  SELECT  "posts".* FROM "posts" WHERE "posts"."id" = ? LIMIT 1  [["id", 1]]
+ => #<Post id: 1, title: "First Post", body: "This is the first post in our system", created_at: "2015-06-10 18:30:38", updated_at: "2015-06-10 18:30:38">
+ ```
+Let's create another comment on post:
+
+Console
+```
+> post.comments.create(body: "Second comment!")
+```
+The has_many :comments declaration in Post is the counterpart of belongs_to :post. The posts table makes no reference to comments. There's no comment_id column or array of comment_ids in the posts table. Instead, this relationship is stored in the comments table exclusively. A post retrieves its associated comments by fetching all the comments with a post_id that matches the id of the post. Storing the relationship in the comments table is a database strategy to allow data to be intersected or joined in an efficient manner.
+
+Now that we have two comments associated with a single post, let's iterate over them using Ruby:
+
+Console
+```
+# #4
+>  post.comments.each { |comment| p comment.body }
+# #5
+  Comment Load (0.2ms)  SELECT "comments".* FROM "comments" WHERE "comments"."post_id" = ?  [["post_id", 1]]
+"First comment!"
+"Second comment!"
+ => [#<Comment id: 1, body: "First comment!", post_id: 1, created_at: "2015-06-10 19:50:29", updated_at: "2015-06-10 19:50:29">, #<Comment id: 2, body: "Second comment!", post_id: 1, created_at: "2015-06-10 22:31:36", updated_at: "2015-06-10 22:31:36">]
+At #4, the |comment| block argument represents an instance of Comment with each iteration. We call body on each comment instance to retrieve the comment's body attribute from the database.
+
+At #5, the SELECT statement fetches all the comments with the given post_id.
+
