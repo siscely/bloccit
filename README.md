@@ -3158,4 +3158,263 @@ app/views/layouts/application.html.erb
         ```
 Visit any page in Bloccit we'll see a link to our topics index view. Create, update, and delete some topics and posts to confirm that everything is working as expected.
         
+ ### Validation Specs
+Let's validate the Post model with the following rules. An instance of Post must:
+
+1. have a title, body, and topic
+1. have at least five characters in the title
+1. have at least 20 characters in the body
+1. There are numerous types of validations. The most common are presence,  length, and format. The Rails Guide on validations is a good reference to keep bookmarked.
+
+Add the following tests to post_spec.rb:
+
+spec/models/post_spec.rb
+```
+ ...
+   it { is_expected.to belong_to(:topic) }
+
+   it { is_expected.to validate_presence_of(:title) }
+   it { is_expected.to validate_presence_of(:body) }
+   it { is_expected.to validate_presence_of(:topic) }
+ 
+   it { is_expected.to validate_length_of(:title).is_at_least(5) }
+   it { is_expected.to validate_length_of(:body).is_at_least(20) }
+ 
+   describe "attributes" do
+     it "has title and body attributes" do
+       expect(post).to have_attributes(title: title, body: body)
+ ...
+ ```
+At #1, we test that Post validates the presence of title, body, and topic. At #2, we test that Post validates the lengths of title and body.
+
+Run post_spec.rb to see that the five new tests fail:
+
+Terminal
+$ rspec spec/models/post_spec.rb
+### Validating Posts
+Add the validations tested above to Post using the validates method:
+
+app/models/post.rb
+```
+ class Post < ApplicationRecord
+   belongs_to :topic
+   has_many :comments, dependent: :destroy
+
+   validates :title, length: { minimum: 5 }, presence: true
+   validates :body, length: { minimum: 20 }, presence: true
+   validates :topic, presence: true
+ end
+ ```
+Run post_spec.rb again to confirm that our validations satisfy our tests:
+
+Terminal
+$ rspec spec/models/post_spec.rb
+### Validations in Action
+Examine how these validations work by opening the Rails console and creating a new  Post object:
+
+Restart the console if it's already running.
+```
+Console
+$ rails c
+>> my_post = Post.new
+=> #<Post id: nil, title: nil, body: nil, created_at: nil, updated_at: nil, topic_id: nil>
+Check to see if my_post is valid:
+
+Console
+>> my_post.valid?
+=> false
+Print the errors that make my_post invalid:
+
+Console
+>> my_post.errors
+=> #<ActiveModel::Errors:0x007fad729366c0 @base=#<Post id: nil, title: nil, body: nil, created_at: nil, updated_at: nil, topic_id: nil>, @messages={:title=>["is too short (minimum is 5 characters)", "can't be blank"], :body=>["is too short (minimum is 20 characters)", "can't be blank"], :topic=>["can't be blank"]}>
+Print the complete error messages:
+
+Console
+>> my_post.errors.full_messages
+=> ["Title is too short (minimum is 5 characters)", "Title can't be blank", "Body is too short (minimum is 20 characters)", "Body can't be blank", "Topic can't be blank"]
+Print the :title error:
+
+Console
+>> my_post.errors[:title]
+=> ["is too short (minimum is 5 characters)", "can't be blank"]
+Since my_post was created without values, it didn't meet the conditions we validate in  Post. If you try to save it, the method will return false and fail to save. If you call the  save! method on the post, it will throw an error.
+
+Remember what ! does?
+
+Console
+> my_post.save!
+   (0.1ms)  begin transaction
+   (0.1ms)  rollback transaction
+ActiveRecord::RecordInvalid: Validation failed: Title is too short (minimum is 5 characters), Title can't be blank, Body is too short (minimum is 20 characters), Body can't be blank, Topic can't be blank
+```
+
+#### Displaying Validation Errors
+Let's change our post views to display errors raised by our validations. Because these changes will affect the forms on both the new and the edit views, it's a good time to demonstrate how to use partials to make our views DRY.
+
+Open the edit view and make the following changes:
+
+app/views/posts/edit.html.erb
+```
+ <h1>Edit Post</h1>
+
+ <div class="row">
+   <div class="col-md-4">
+     <p>Guidelines for posts</p>
+     <ul>
+       <li>Make sure it rhymes.</li>
+       <li>Don't use the letter "A".</li>
+       <li>The incessant use of hashtags will get you banned.</li>
+     </ul>
+   </div>
+ <div class="col-md-8">
+     <%= form_for [@post.topic, @post] do |f| %>
+       <div class="form-group">
+         <%= f.label :title %>
+         <%= f.text_field :title, class: 'form-control', placeholder: "Enter post title" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :body %>
+         <%= f.text_area :body, rows: 8, class: 'form-control', placeholder: "Enter post body" %>
+       </div>
+       <div class="form-group">
+         <%= f.submit "Save", class: 'btn btn-success' %>
+       </div>
+     <% end %>
+     <%= render partial: 'form', locals: { topic: @post.topic, post: @post } %>
+   </div>
+ </div>
+ ```
+We just replaced a large chunk of code with a partial. Partials are fragments of view code, which are called from views. Partials are called with the render method. Rendering a partial is like copying and pasting view code from another file.
+
+We've rendered a partial in the edit view, but this partial file doesn't yet exist. We need to create the partial and add the code we just removed from the edit view.
+
+Why remove code from one view file, just to paste it in another? Partials make our code DRYer, clearer, and more modular.
+
+Form Partial
+Create a new file in app/views/posts named _form.html.erb. The underscore at the beginning of a file name lets Rails know that it's a partial. Add the code we deleted from the edit view to _form.html.erb:
+
+app/views/posts/_form.html.erb
+```
+ <!-- #3 -->
+ <%= form_for [topic, post] do |f| %>
+   <div class="form-group">
+     <%= f.label :title %>
+      <%= f.text_field :title, class: 'form-control', placeholder: "Enter post title" %>
+   </div>
+   <div class="form-group">
+     <%= f.label :body %>
+     <%= f.text_area :body, rows: 8, class: 'form-control', placeholder: "Enter post body" %>
+   </div>
+   <div class="form-group">
+     <%= f.submit "Save", class: 'btn btn-success' %>
+   </div>
+ <% end %>
+ ```
+At #3 we use the topic and post local variables we passed into the partial when we rendered it:
+
+app/views/posts/edit.html.erb
+    <%= render partial: 'form', locals: { topic: @post.topic, post: @post } %>
+Our view is called _form.html.erb, while we render the partial: 'form'. This is a Rails convention for partial naming. If we don't follow it, the partial will not be found.
+
+locals: { topic: @post.topic, post: @post } passes local variables to the partial.  @post.topic and @post are assigned to topic and post, respectively. This means we can refer to these local variables, rather than the @post instance variable we used in the edit view.
+
+Although the partial does have access to @post, it's a better practice to use local variables. A primary reason is flexibility. We want to be able to render our partial on any page, whether or not it has access to the same instance variables.
+
+Start the Rails server, navigate to the edit view, and make sure no errors appear. If the partial worked, the edit view should appear as it did before the refactor. The great thing about partials is that they're reusable. The form for creating new posts is the same as the form for editing, so let's refactor the new view next.
+
+#### Refactor the Posts New View
+Open the posts new view and make the following changes:
+
+app/views/posts/new.html.erb
+```
+ <h1>New Post</h1>
+
+ <div class="row">
+
+   <div class="col-md-4">
+
+     <p>Guidelines for posts</p>
+     <ul>
+       <li>Make sure it rhymes.</li>
+       <li>Don't use the letter "A".</li>
+       <li>The incessant use of hashtags will get you banned.</li>
+     </ul>
+   </div>
+
+   <div class="col-md-8">
+ <%= render partial: 'form', locals: { topic: @topic, post: @post } %>
+   </div>
+ </div>
+ ```
+
+Visit the new view and validate that it looks the same as it did prior to the refactor.
+
+### The Application Helper
+Styling the elements on the form partial is a little tricky. If the form displays errors, we want a certain style, and if the form doesn't display errors, we want a different style. We could include conditional logic directly in our view, but Rails conventions strongly suggest keeping as much logic as possible out of the view. Views cluttered with if statements are hard to read, hard to maintain, and confusing. We'll use the  ApplicationHelper to implement a DRY solution for toggling the div classes we'll need to display an error-full or error-less view.
+
+Methods in ApplicationHelper can be used across our application. It's a Module that Rails includes with other classes in our app. Any public method we write in  ApplicationHelper will be available in all views.
+
+Open app/helpers/application_helper.rb and add the following code:
+
+app/helpers/application_helper.rb
+```
+ module ApplicationHelper
+ # #4
+   def form_group_tag(errors, &block)
+     css_class = 'form-group'
+     css_class << ' has-error' if errors.any?
+# #5
+     content_tag :div, capture(&block), class: css_class
+   end
+ end
+ ```
+At #4, we define a method named form_group_tag which takes two arguments. The first argument is an array of errors, and the second is a block.
+
+The & turns the block into a Proc, which we've seen before but haven't named. A Proc is a block that can be reused like a variable.
+
+At #5, the content_tag helper method is called. This method is used to build the HTML and CSS to display the form element and any associated errors.
+
+Helpers are written in Ruby and usually return HTML. The content_tag is one such method. It takes a symbol argument, a block, and an options hash. It then creates the symbol-specified HTML tag with the block contents, and if specified, the options.
+
+We need a different div based on the errors raised by the validates method, so let's use form_group_tag in the form partial:
+
+app/view/posts/_form.html.erb
+```
+ <%= form_for [topic, post] do |f| %>
+   <div class="form-group">
+   <% if post.errors.any? %>
+ # #6
+     <div class="alert alert-danger">
+ # #7
+       <h4><%= pluralize(post.errors.count, "error") %>.</h4>
+       <ul>
+         <% post.errors.full_messages.each do |msg| %>
+           <li><%= msg %></li>
+         <% end %>
+       </ul>
+     </div>
+   <% end %>
+  # #8
+   <%= form_group_tag(post.errors[:title]) do %>
+     <%= f.label :title %>
+     <%= f.text_field :title, class: 'form-control', placeholder: "Enter post title" %>
+   </div>
+   <div class="form-group">
+   <% end %>
+  # #9
+   <%= form_group_tag(post.errors[:body]) do %>
+     <%= f.label :body %>
+     <%= f.text_area :body, rows: 8, class: 'form-control', placeholder: "Enter post body" %>
+   </div>
+   <% end %>
+   <div class="form-group">
+     <%= f.submit "Save", class: 'btn btn-success' %>
+   </div>
+ <% end %>
+ ```
+At #6, if there are any validation errors, we display an alert with the number of errors and their messages. At #7, we use the pluralize method to pluralize "error" if there is more than one error. At #8, we use form_group_tag to display title errors. At #9, we use form_group_tag to display body errors.
+
+Open the post new view and submit a new post with no title or body. Validate that you see the correctly formatted error messages. Also submit a new post with a valid  title and body to ensure that, given valid inputs, a user can successfully create a new post.
+        
  
