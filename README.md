@@ -415,7 +415,7 @@ app/assets/stylesheets/welcome.scss
  }
  ```
 
-View the index and about pages. The content between the <h1> tags should be red now. There are a few important things to note about the code above:
+View the index and about pages. The content between the h1 tags should be red now. There are a few important things to note about the code above:
 
 The CSS we added was in the welcome.scss file. When we ran  rails generate controller, welcome.scss was created. By Rails convention, each controller has a corresponding stylesheet and view.
 Similar to the .html.erb extension, the .scss extension provides us with some additional syntax options (known as Sass) to enhance default CSS capabilities. 
