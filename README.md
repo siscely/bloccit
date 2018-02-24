@@ -1139,27 +1139,6 @@ spec/controllers/posts_controller_spec.rb
      end
    end
 
- #  describe "GET show" do
- #    it "returns http success" do
- #      get :show
- #      expect(response).to have_http_status(:success)
- #    end
- #  end
-
- # describe "GET new" do
- #   it "returns http success" do
- #     get :new
- #     expect(response).to have_http_status(:success)
- #   end
- # end
-
- #  describe "GET edit" do
- #    it "returns http success" do
- #      get :edit
- #      expect(response).to have_http_status(:success)
- #    end
- #  end
-
  end
  ```
 At #8, we create a post and assign it to my_post using let. We use RandomData to give my_post a random title and body.
