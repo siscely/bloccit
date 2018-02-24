@@ -482,3 +482,189 @@ container, nav, and nav-tabs are classes provided by Bootstrap. By assigning the
 Remove the CSS rules you added to welcome.scss as well as the HTML changes you made in the index view (leaving the two @import lines). They were for demonstration only.
 
 Restart the Rails server and observe the changes.
+
+### POST
+The first model we'll create is Post. Users should have the ability to submit posts to Bloccit with titles and descriptions, so the Post model and its corresponding database table will need two attributes: title and body.
+
+Use a generator to create Post and its corresponding spec:
+
+Terminal
+```
+$ rails generate model Post title:string body:text
+      invoke  active_record
+   identical    db/migrate/20150606010447_create_posts.rb
+   identical    app/models/post.rb
+      invoke    rspec
+      create      spec/models/post_spec.rb
+      ```
+Use cat to see the contents of the spec file:
+
+Terminal
+```
+$ cat spec/models/post_spec.rb
+ require 'rails_helper'
+
+ RSpec.describe Post, type: :model do
+   pending "add some examples to (or delete) #{__FILE__}"
+ end
+ ```
+This is the template for a simple spec. We'll use TDD to define the behavior for Post. Add the following tests:
+
+spec/models/post_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Post, type: :model do
+   pending "add some examples to (or delete) #{__FILE__}"
+ # #1
+   let(:post) { Post.create!(title: "New Post Title", body: "New Post Body") }
+ 
+ # #2
+   describe "attributes" do
+     it "has title and body attributes" do
+       expect(post).to have_attributes(title: "New Post Title", body: "New Post Body")
+     end
+   end
+ end
+ ```
+At #1, using the let method, we create a new instance of the Post class, and name it post. let dynamically defines a method (in this case, post), and, upon first call within a spec (the it block), computes and stores the returned value.
+
+At #2, we test whether post has attributes named title and body. This tests whether post will return a non-nil value when post.title and post.body is called.
+
+Use cat to see the contents of post.rb, which was also created with a basic template:
+
+Terminal
+$ cat app/models/post.rb
+class Post < ApplicationRecord
+end
+
+ApplicationRecord essentially handles interaction with the database and allows us to persist data through our class. Run the spec:
+
+Terminal
+$ rspec spec/models/post_spec.rb
+You will see a verbose error, but focus on the first line:
+
+Terminal
+schema.rb doesn't exist yet. Run `rails db:migrate` to create it, then try again.
+RSpec reported that schema.rb doesn't exist. schema.rb is a file located in the db directory that represents an application's complete database architecture; the tables it uses and how those tables relate to each other. We don't have schema.rb because we have not yet created the database or any tables. The generator created the migration file, but we haven't executed that file yet. We'll do that now:
+
+Terminal
+$ rails db:migrate
+== 20150606010447 CreatePosts: migrating ======================================
+-- create_table(:posts)
+   -> 0.0016s
+== 20150606010447 CreatePosts: migrated (0.0017s) =============================
+
+rails db:migrate created a new table named "posts". Let's review the migration file, which is the only file in the db/migrate directory (its name begins with a timestamp, and so will differ from the one below):
+
+db/migrate/20150606010447_create_posts.rb
+```
+$ cat db/migrate/20150606010447_create_posts.rb
+class CreatePosts < ActiveRecord::Migration[5.0]
+  def change
+    create_table :posts do |t|
+      t.string :title
+      t.text :body
+
+      t.timestamps
+    end
+  end
+end
+```
+The migration is written in Ruby. 
+Run the tests in post_spec.rb again:
+
+Terminal
+$ rspec spec/models/post_spec.rb
+..
+
+Finished in 0.00817 seconds (files took 1.67 seconds to load)
+1 examples, 0 failures
+Our tests passed, so we know that the Post model has the attributes we expected.
+
+### Comment
+The Comment model needs one attribute - body - and a reference to Post. Let's create the spec, model, and migration files with the model generator:
+
+```
+Terminal
+$ rails generate model Comment body:text post:references
+      invoke  active_record
+      create    db/migrate/20150608215948_create_comments.rb
+      create    app/models/comment.rb
+      invoke    rspec
+      create      spec/models/comment_spec.rb
+      ```
+Open comment_spec.rb and add the following test:
+
+spec/models/comment_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Comment, type: :model do
+   pending "add some examples to (or delete) #{__FILE__}"
+   let(:post) { Post.create!(title: "New Post Title", body: "New Post Body") }
+   let(:comment) { Comment.create!(body: 'Comment Body', post: post) }
+ 
+   describe "attributes" do
+     it "has a body attribute" do
+       expect(comment).to have_attributes(body: "Comment Body")
+     end
+   end
+ end
+ ```
+Review comment.rb:
+
+app/models/comment.rb
+```
+$ cat app/models/comment.rb
+class Comment < ApplicationRecord
+  belongs_to :post
+end
+```
+Review the create_comments migration in the db/migrate directory and add a foreign key:
+
+db/migrate/20140624203804_create_comments.rb
+```
+ class CreateComments < ActiveRecord::Migration[5.0]
+   def change
+     create_table :comments do |t|
+       t.text :body
+       t.references :post, foreign_key: true
+
+       t.timestamps
+     end
+   end
+ end
+ ```
+Since we have a new migration file, we shall once again run the migrations, adding the comments table to the database:
+
+Terminal
+```
+$ rails db:migrate
+== 20150608215948 CreateComments: migrating ===================================
+-- create_table(:comments)
+   -> 0.0021s
+== 20150608215948 CreateComments: migrated (0.0022s) ==========================
+```
+The results above tell us that the tables and attributes have been created successfully.
+
+Run comment_spec.rb:
+
+Terminal
+$ rspec spec/models/comment_spec.rb
+.
+
+Finished in 0.01325 seconds (files took 1.78 seconds to load)
+1 example, 0 failures
+
+### Updating Post
+Remember that when we use a model generator, the resulting model inherits from a class named ApplicationRecord by default. This inheritance pattern provides methods that the model will need in order to interact with tables in the database. Our comment class already relates to our post class, thanks to the model generator, but the post class does not yet relate to the comment class. Let's create that relation:
+
+app/models/post.rb
+```
+ class Post < ApplicationRecord
+   has_many :comments
+ end
+ ```
+The has_many method allows a post instance to have many comments related to it, and also provides methods that allow us to retrieve comments that belong to a post.
+
