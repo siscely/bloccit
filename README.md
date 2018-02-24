@@ -3417,7 +3417,7 @@ At #6, if there are any validation errors, we display an alert with the number o
 
 Open the post new view and submit a new post with no title or body. Validate that you see the correctly formatted error messages. Also submit a new post with a valid  title and body to ensure that, given valid inputs, a user can successfully create a new post.
         
-## Authentication
+## Authentication -User Model
 User authentication systems determine whether a user is who they claim to be. They allow users to sign up, sign in, and sign out. We'll build the foundation of Bloccit's user authentication system by creating the User model.
 
 ### Custom Authentication
@@ -3587,3 +3587,282 @@ Run rails routes to see the user routes that were generated:
 Terminal
 $ rails routes | grep user
 We're now able to represent and store users in our app.
+
+## Authentication - Signing up
+Bloccit has the ability to model and persist users, but we have no way of creating a user or signing up for the application. We'll implement sign up in this checkpoint.
+
+### UsersController
+To create users, we'll need a controller. Create the UsersController:
+
+Terminal
+$ rails generate controller Users
+Start the Rails server and open localhost:3000/users/new. We see an error stating that "The action 'new' could not be found for UsersController". This is because we haven't created actions for UsersController and we don't have the proper routes in place. We'll write UsersController using TDD, as usual.
+
+Add the following code in users_controller_spec.rb:
+
+spec/controllers/users_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe UsersController, type: :controller do
+ # #1
+   let(:new_user_attributes) do
+     {
+         name: "BlocHead",
+         email: "blochead@bloc.io",
+         password: "blochead",
+         password_confirmation: "blochead"
+     }
+   end
+ end
+ ```
+At #1, we create a hash of attributes named new_user_attributes so we can use them easily throughout our spec.
+
+#### new Action
+spec/controllers/users_controller_spec.rb
+```
+ ...
+
+ # #2
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "instantiates a new user" do
+       get :new
+       expect(assigns(:user)).to_not be_nil
+     end
+   end
+
+ ...
+ ```
+At #2, we test the new action for HTTP success when issuing a GET. The first test expects the response to return an HTTP response code of 200. The second test expects new to instantiate a new user.
+
+Run the spec, and see that we have two failing tests.
+
+Terminal
+$ rspec spec/controllers/users_controller_spec.rb
+Let's write the implementation code for new and pass these tests:
+
+app/controllers/users_controller.rb
+```
+ class UsersController < ApplicationController
+   def new
+     @user = User.new
+   end
+ end
+ ```
+Let's also create the new view:
+
+terminal
+$ touch app/views/users/new.html.erb
+As before, we created an instance variable named @user to be used by the new view's form. Run the spec again and our two tests should pass:
+
+Terminal
+$ rspec spec/controllers/users_controller_spec.rb
+#### create Action
+create is the action that is called when the new view's form is submitted with valid attributes. Let's write the tests first:
+
+spec/controllers/users_controller_spec.rb
+```
+ ...
+
+ # #3
+   describe "POST create" do
+     it "returns an http redirect" do
+       post :create, params: { user: new_user_attributes }
+       expect(response).to have_http_status(:redirect)
+     end
+ 
+ # #4
+     it "creates a new user" do
+       expect{
+         post :create, params: { user: new_user_attributes }
+       }.to change(User, :count).by(1)
+     end
+ 
+ # #5
+     it "sets user name properly" do
+       post :create, params: { user: new_user_attributes }
+       expect(assigns(:user).name).to eq new_user_attributes[:name]
+     end
+ 
+ # #6
+     it "sets user email properly" do
+       post :create, params: { user: new_user_attributes }
+       expect(assigns(:user).email).to eq new_user_attributes[:email]
+     end
+ 
+ # #7
+     it "sets user password properly" do
+       post :create, params: { user: new_user_attributes }
+       expect(assigns(:user).password).to eq new_user_attributes[:password]
+     end
+ 
+ # #8
+     it "sets user password_confirmation properly" do
+       post :create, params: { user: new_user_attributes }
+       expect(assigns(:user).password_confirmation).to eq new_user_attributes[:password_confirmation]
+     end
+   end
+ end
+ ```
+At #3, we test the create action for HTTP success when issuing a POST with  new_user_attributes set as the params hash.
+
+At #4, we test that the database count on the users table increases by one when we issue a POST to create.
+
+At #5, we test that we set user.name properly when creating a user.
+
+At #6, we test that we set user.email properly when creating a user.
+
+At #7, we test that we set user.password properly when creating a user.
+
+At #8, we test that we set user.password_confirmation properly when creating a user.
+
+Run the spec to see the six new failures:
+
+Terminal
+$ rspec spec/controllers/users_controller_spec.rb
+Let's pass these tests by updating UsersController with a create action:
+
+app/controllers/users_controller.rb
+```
+ class UsersController < ApplicationController
+   def new
+     @user = User.new
+   end
+
+   def create
+ # #9
+     @user = User.new
+     @user.name = params[:user][:name]
+     @user.email = params[:user][:email]
+     @user.password = params[:user][:password]
+     @user.password_confirmation = params[:user][:password_confirmation]
+ 
+ # #10
+     if @user.save
+       flash[:notice] = "Welcome to Bloccit #{@user.name}!"
+       redirect_to root_path
+     else
+       flash.now[:alert] = "There was an error creating your account. Please try again."
+       render :new
+     end
+   end
+
+ end
+ ```
+At #9, we create a new user with new and then set the corresponding attributes from the params hash.
+
+At #10, we save the new user to the database. If the database save is successful, we add a flash message and then redirect the user to the root path. Otherwise, we display an error and render the new view.
+
+Run the spec again and our six tests pass.
+
+Remember that we already created new and create routes in the previous checkpoint, so we do not need to modify routes.rb at this point, as we have done in the past with other controllers.
+
+HTML
+Let's build the views for creating users. Open the users new view and add the following:
+
+app/views/users/new.html.erb
+```
+ <h2>Sign up</h2>
+ 
+ <div class="row">
+   <div class="col-md-8">
+     <%= form_for @user do |f| %>
+ <!-- #11 -->
+       <% if @user.errors.any? %>
+         <div class="alert alert-danger">
+           <h4><%= pluralize(@user.errors.count, "error") %>.</h4>
+           <ul>
+             <% @user.errors.full_messages.each do |msg| %>
+               <li><%= msg %></li>
+             <% end %>
+           </ul>
+         </div>
+       <% end %>
+ <!-- #12 -->
+       <%= form_group_tag(@user.errors[:name]) do %>
+         <%= f.label :name %>
+         <%= f.text_field :name, autofocus: true, class: 'form-control', placeholder: "Enter name" %>
+       <% end %>
+       <%= form_group_tag(@user.errors[:email]) do %>
+         <%= f.label :email %>
+         <%= f.email_field :email, class: 'form-control', placeholder: "Enter email" %>
+       <% end %>
+       <%= form_group_tag(@user.errors[:password]) do %>
+         <%= f.label :password %>
+         <%= f.password_field :password, class: 'form-control', placeholder: "Enter password" %>
+       <% end %>
+       <%= form_group_tag(@user.errors[:password_confirmation]) do %>
+         <%= f.label :password_confirmation %>
+         <%= f.password_field :password_confirmation, class: 'form-control', placeholder: "Enter password confirmation" %>
+       <% end %>
+       <div class="form-group">
+         <%= f.submit "Sign up", class: 'btn btn-success' %>
+       </div>
+     <% end %>
+   </div>
+ </div>
+ ```
+At #11, we check the errors hash on @user. The errors hash is provided by  ActiveModel:Errors. If there are errors with @user, such as invalid attributes, we display the corresponding error messages.
+
+At #12, we add form fields for name and email, as well as the virtual attributes provided by has_secure_password: password and password_confirmation.
+
+It's been a while since we updated our home page. Let's use this opportunity to enhance the home page with an improved design and a call-to-action for signing up:
+
+app/views/welcome/index.html.erb
+```
+ <h1>Welcome to Bloccit</h1>
+ <p id="index-title">This is the home page for Bloccit.</p>
+ <div class="posts">Post 1 goes here.</div>
+ <div class="posts">Post 2 goes here.</div>
+ <section>I am the content in a section element.</section>
+ <div class="jumbotron">
+   <h1>Bloccit</h1>
+   <p>Bloccit is a resource for sharing links with your friends!</p>
+   <p>
+     <%= link_to "Sign Up", new_user_path, class: 'btn btn-primary' %> today!
+   </p>
+ </div>
+ 
+ <div class="row">
+   <div class="col-md-4">
+     <h2>Solves world hunger</h2>
+     <p>Bloccit will deliver food and water to those in need, all over the world.</p>
+   </div>
+   <div class="col-md-4">
+     <h2>Eliminates poverty</h2>
+     <p>Bloccit will deliver money and education to those in need, all over the world.</p>
+   </div>
+   <div class="col-md-4">
+     <h2>Makes you better looking</h2>
+     <p>Bloccit will make you better looking: it's scientifically proven to make men look like Ryan Gosling and women look like Shakira.</p>
+   </div>
+ </div>
+ ```
+Let's also add a Sign Up link to the top navigation:
+
+app/views/layouts/application.html.erb
+```
+...
+
+   <ul class="nav nav-tabs">
+     <li><%= link_to "Bloccit", root_path %></li>
+     <li><%= link_to "Topics", topics_path %></li>
+     <li><%= link_to "About", about_path %></li>
+     <li class="pull-right"><%= link_to "Sign Up", new_user_path %></li>
+  </ul>
+
+  <% if flash[:notice] %>
+
+...
+```
+Try creating valid and invalid users. Your results should look similar to the images below. First for a valid user:
+
+Successful User Creation
+... and if you try to create an invalid user, with a mismatching Password and Password Confirmation:
+
+
