@@ -3417,4 +3417,173 @@ At #6, if there are any validation errors, we display an alert with the number o
 
 Open the post new view and submit a new post with no title or body. Validate that you see the correctly formatted error messages. Also submit a new post with a valid  title and body to ensure that, given valid inputs, a user can successfully create a new post.
         
+## Authentication
+User authentication systems determine whether a user is who they claim to be. They allow users to sign up, sign in, and sign out. We'll build the foundation of Bloccit's user authentication system by creating the User model.
+
+### Custom Authentication
+There are some popular authentication systems for Rails, including Devise, OmniAuth, and AuthLogic. While these systems offer robust functionality, building our own solution will give us a deeper understanding of authentication-based models, controllers, and routing.
+
+### Generate User
+Before we build authentication functionality, we'll need a user to authenticate. Generate a User model to represent the users of Bloccit with the following attributes:
+
+#### Attribute	Description
+name	A string to represent the user's name.
+email	A string to represent the user's email.
+password_digest	A string to store the user's hashed password.
+
+Terminal
+$ rails generate model User name:string email:string password_digest:string
+Run the migration:
+
+Terminal
+$ rails db:migrate
+When we migrate the database, we are ultimately changing the database's schema, which describes the layout, structure, and contents of the database. Open  db/schema.rb and review the schema.
+
+schema.rb serves two important purposes. It represents the current state of the database, which can be difficult to deduce from the migration files. It also populates the database schema before tests are executed.
+
+#### Test User
+Let's write our first specs for User:
+
+spec/models/user_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe User, type: :model do
+   pending "add some examples to (or delete) #{__FILE__}"
+   let(:user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "password") }
+   # Shoulda tests for name
+   it { is_expected.to validate_presence_of(:name) }
+   it { is_expected.to validate_length_of(:name).is_at_least(1) }
  
+   # Shoulda tests for email
+   it { is_expected.to validate_presence_of(:email) }
+   it { is_expected.to validate_uniqueness_of(:email) }
+   it { is_expected.to validate_length_of(:email).is_at_least(3) }
+   it { is_expected.to allow_value("user@bloccit.com").for(:email) }
+ 
+   # Shoulda tests for password
+   it { is_expected.to validate_presence_of(:password) }
+   it { is_expected.to have_secure_password }
+   it { is_expected.to validate_length_of(:password).is_at_least(6) }
+ 
+   describe "attributes" do
+     it "should have name and email attributes" do
+       expect(user).to have_attributes(name: "Bloccit User", email: "user@bloccit.com")
+     end
+   end
+ end
+ ```
+As with our other model tests, the tests above test for field validation and attributes. Let's simulate and add tests for an invalid user:
+
+spec/models/user_spec.rb
+```
+...
+
+ # #1
+   describe "invalid user" do
+     let(:user_with_invalid_name) { User.new(name: "", email: "user@bloccit.com") }
+     let(:user_with_invalid_email) { User.new(name: "Bloccit User", email: "") }
+ 
+     it "should be an invalid user due to blank name" do
+       expect(user_with_invalid_name).to_not be_valid
+     end
+ 
+     it "should be an invalid user due to blank email" do
+       expect(user_with_invalid_email).to_not be_valid
+     end
+ 
+   end
+ end
+ ```
+At #1, we wrote a test that does not follow the same conventions as our previous tests. We are testing for a value that we know should be invalid. We call this a true negative, as we are testing for a value that shouldn't exist. A true positive follows the reciprocal pattern and tests for a known and valid value. True negatives are a useful testing strategy, because if we only test for values that we know should exist, we may not catch values that shouldn't.
+
+Run the tests, and we'll see 14 failures:
+
+Terminal
+$ rspec spec/models/user_spec.rb
+User Model
+Let's add the functionality we just tested for in user_spec.rb:
+
+app/models/user.rb
+```
+ class User < ApplicationRecord
+ # #2
+   before_save { self.email = email.downcase if email.present? }
+
+ # #3
+   validates :name, length: { minimum: 1, maximum: 100 }, presence: true
+ # #4
+  validates :password, presence: true, length: { minimum: 6 }, if: "password_digest.nil?"
+  validates :password, length: { minimum: 6 }, allow_blank: true
+ # #5
+   validates :email,
+             presence: true,
+             uniqueness: { case_sensitive: false },
+             length: { minimum: 3, maximum: 254 }
+
+ # #6
+   has_secure_password
+ end
+ ```
+At #2, we register an inline callback directly after the before_save callback.  { self.email = email.downcase } is the code that will run when the callback executes.
+
+At #3, we use Ruby's validates function to ensure that name is present and has a maximum and minimum length.
+
+At #4, we validate password with two separate validations:
+
+The first validation executes if password_digest is nil. This ensures that when we create a new user, they have a valid password.
+The second validation ensures that when updating a user's password, the updated password is also six characters long. allow_blank: true skips the validation if no updated password is given. This allows us to change other attributes on a user without being forced to set the password.
+At #5, we validate that email is present, unique, case insensitive, has a minimum length, has a maximum length, and that it is a properly formatted email address.
+
+At #6, we use Ruby's has_secure_password. has_secure_password "adds methods to set and authenticate against a BCrypt password. This mechanism requires you to have a password_digest attribute". This function abstracts away much of the complexity of obfuscating user passwords using hashing algorithms which we would otherwise be inclined to write to securely save passwords. has_secure_password requires a password_digest attribute on the model it is applied to.  has_secure_password creates two virtual attributes, password and  password_confirmation that we use to set and save the password.
+
+To use has_secure_password, we need to install BCrypt. BCrypt is a module that encapsulates complex hashing algorithms. BCrypt takes a plain text password and turns it into an unrecognizable string of characters using a hashing algorithm such as MD5. Typically, hashing algorithms are one directional so that if someone gains access to the hashed password, they will not be able to reverse the hashing algorithm to gain the plaintext password. This way, our password is safe even if someone gains access to our database.
+
+Let's add BCrypt to our Gemfile. Add it to the bottom of the Gemfile, outside of any blocks:
+
+Gemfile
+```
+...
+
+gem 'bootstrap-sass'
+
+ # Used for encrypting passwords
+ gem 'bcrypt'
+
+...
+```
+As usual after adding a gem to the Gemfile, we need to install it:
+
+Terminal
+$ bundle install
+
+...
+Let's run our specs again:
+
+Terminal
+$ rspec spec/models/user_spec.rb
+...............
+
+Finished in 0.111 seconds (files took 1.41 seconds to load)
+15 examples, 0 failures
+Our specs now pass and we are in the green phase of TDD. We still need to add user routes though:
+
+config/routes.rb
+```
+...
+   resources :topics do
+     resources :posts, except: [:index]
+   end
+
+ # #7
+   resources :users, only: [:new, :create]
+
+...
+```
+At #7, we create routes for new and create actions. The only hash key will prevent Rails from creating unnecessary routes.
+
+Run rails routes to see the user routes that were generated:
+
+Terminal
+$ rails routes | grep user
+We're now able to represent and store users in our app.
