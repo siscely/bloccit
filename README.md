@@ -902,3 +902,349 @@ count is an ActiveRecord method that can be called on an ActiveRecord relation. 
 
 Type exit to exit the console.
 
+## Generating a Resource
+A resource has three components which align to MVC architecture: a model, view(s), and a controller. We'll build a resource for posts first, and because we already have a post model, we'll create a controller next:
+
+Terminal
+$ rails generate controller Posts index show new edit
+We passed the controller generator five arguments, including the resource name,  Posts. Review the following output:
+
+Terminal
+```
+      create  app/controllers/posts_controller.rb
+       route  get 'posts/edit'
+       route  get 'posts/new'
+       route  get 'posts/show'
+       route  get 'posts/index'
+      invoke  erb
+      create    app/views/posts
+      create    app/views/posts/index.html.erb
+      create    app/views/posts/show.html.erb
+      create    app/views/posts/new.html.erb
+      create    app/views/posts/edit.html.erb
+      invoke  rspec
+      create    spec/controllers/posts_controller_spec.rb
+      create    spec/views/posts
+      create    spec/views/posts/index.html.erb_spec.rb
+      create    spec/views/posts/show.html.erb_spec.rb
+      create    spec/views/posts/new.html.erb_spec.rb
+      create    spec/views/posts/edit.html.erb_spec.rb
+      invoke  helper
+      create    app/helpers/posts_helper.rb
+      invoke    rspec
+      create      spec/helpers/posts_helper_spec.rb
+      invoke  assets
+      invoke    js
+      create      app/assets/javascripts/posts.js
+      invoke    scss
+      create      app/assets/stylesheets/posts.scss
+      ```
+Open routes.rb and view the get method calls the controller generator added:
+
+config/routes.rb
+```
+Rails.application.routes.draw do
+  get "posts/index"
+
+  get "posts/show"
+
+  get "posts/new"
+
+  get "posts/edit"
+
+  get "welcome/index"
+  get "welcome/about"
+
+  root 'welcome#index'
+end
+```
+The generated get method calls create routes for the post resource, but Rails offers a more succinct syntax. Let's refactor routes.rb with the resources method:
+
+config/routes.rb
+```
+ Rails.application.routes.draw do
+   get "posts/index"
+ 
+   get "posts/show"
+ 
+   get "posts/new"
+ 
+   get "posts/edit"
+
+ # #1
+   resources :posts
+
+ # #2
+   get "welcome/index"
+ 
+   get "welcome/about"
+   get 'about' => 'welcome#about'
+
+   root 'welcome#index'
+ end
+ ```
+At #1, we call the resources method and pass it a Symbol. This instructs Rails to create post routes for creating, updating, viewing, and deleting instances of Post. We'll review the precise URIs created in a moment.
+
+At #2, we remove get "welcome/index" because we've declared the index view as the root view. We also modify the about route to allow users to visit /about, rather than  /welcome/about.
+
+The Rails router uses routes.rb. Let's watch a video exploring the important role the Rails router plays:
+
+
+Run rails routes from the command line:
+```
+Terminal
+$ rails routes
+ # #3
+   Prefix Verb   URI Pattern               Controller#Action
+ # #4
+    posts GET    /posts(.:format)          posts#index
+          POST   /posts(.:format)          posts#create
+ new_post GET    /posts/new(.:format)      posts#new
+edit_post GET    /posts/:id/edit(.:format) posts#edit
+     post GET    /posts/:id(.:format)      posts#show
+ # #5
+          PATCH  /posts/:id(.:format)      posts#update
+          PUT    /posts/:id(.:format)      posts#update
+          DELETE /posts/:id(.:format)      posts#destroy
+    about GET    /about(.:format)          welcome#about
+     root GET    /                         welcome#index
+     ```
+At #3, we see a header with Prefix, Verb, URI Pattern, and Controller#Action. The verbs correspond to HTTP Request Methods. They specify the action to be done on the specified resource. 
+
+At #4, Rails created a route to /posts which requires a GET. The route maps to the  index method in  PostsController.
+
+At #5, we see PATCH and PUT verbs, which are similar. PUT updates data by sending the complete resource, whereas PATCH sends just the changes.
+
+#### CRUD
+CRUD stands for Create Read Update Delete. CRUD actions align with controller HTTP verbs and controller actions in a Rails app.
+
+CRUD Action	HTTP Verb	Rails Action(s)
+Create	POST	create
+Read	GET	new/show/index/edit
+Update	PUT/PATCH	update
+Delete	DELETE	destroy
+Start your Rails server and visit http://localhost:3000/posts. We see a NameError like the one below:
+
+path-error
+This error happens because we're using a generated path helper that no longer exists. When we changed our routes, we changed our path helpers. In particular, we changed welcome_index_path to root_path and welcome_about_path to about_path.
+
+Update the application layout to reflect the new paths:
+
+app/views/layouts/application.html.erb
+```
+ ...
+       <li><%= link_to "Home", welcome_index_path %></li>
+       <li><%= link_to "About", welcome_about_path %></li>
+       <li><%= link_to "Bloccit", root_path %></li>
+       <li><%= link_to "About", about_path %></li>
+ ...
+ ```
+Save the changes and refresh the page. We see the default HTML created by the controller generator at http://localhost:3000/posts – this view is the index page. We can deduce this from the rails routes output above, specifically this line:
+
+Output
+        posts GET    /posts(.:format)          posts#index
+We can see that the /posts route (column three) is associated with the posts#index controller action (column four).
+
+Index Action
+Let's use TDD to write the index action in PostsController. When we generated our controller, Rails created a basic spec for PostsController:
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+
+ # #6
+ RSpec.describe PostsController, type: :controller do
+
+   describe "GET index" do
+     it "returns http success" do
+ # #7
+       get :index
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+   describe "GET show" do
+     it "returns http success" do
+       get :show
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+   describe "GET edit" do
+     it "returns http success" do
+       get :edit
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+ end
+ ```
+At #6, RSpec created a test for PostsController. type: :controller tells RSpec to treat the test as a controller test. This allows us to simulate controller actions such as HTTP requests.
+
+At #7, the test performs a GET on the index view and expects the response to be successful.
+
+have_http_status is an RSpec matcher which encapsulates this logic.  have_http_status(:success) checks for a response code of 200, which is the standard HTTP response code for success.
+
+The remaining tests follow the same pattern.
+
+Let's add another test to posts_controller_spec.rb to define the expected behavior of the PostsController#index :
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe PostsController, type: :controller do
+ # #8
+   let(:my_post) { Post.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph) }
+
+   describe "GET index" do
+     it "returns http success" do
+       get :index
+       expect(response).to have_http_status(:success)
+     end
+
+     it "assigns [my_post] to @posts" do
+       get :index
+ # #9
+       expect(assigns(:posts)).to eq([my_post])
+     end
+   end
+
+ # #10
+   describe "GET show" do
+     it "returns http success" do
+       get :show
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+   describe "GET edit" do
+     it "returns http success" do
+       get :edit
+       expect(response).to have_http_status(:success)
+     end
+   end
+
+ #  describe "GET show" do
+ #    it "returns http success" do
+ #      get :show
+ #      expect(response).to have_http_status(:success)
+ #    end
+ #  end
+
+ # describe "GET new" do
+ #   it "returns http success" do
+ #     get :new
+ #     expect(response).to have_http_status(:success)
+ #   end
+ # end
+
+ #  describe "GET edit" do
+ #    it "returns http success" do
+ #      get :edit
+ #      expect(response).to have_http_status(:success)
+ #    end
+ #  end
+
+ end
+ ```
+At #8, we create a post and assign it to my_post using let. We use RandomData to give my_post a random title and body.
+
+At #9, because our test created one post (my_post), we expect index to return an array of one item. We use assigns, a method in ActionController::TestCase.  assigns gives the test access to "instance variables assigned in the action that are available for the view".
+
+At #10, we comment out the tests for show, new, and edit since we won't write the implementation until later.
+
+Run the spec:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+We see output indicating our new test is failing. Let's write the implementation of  index to get both tests passing. In the PostsController, add the following to the  index method:
+
+app/controllers/posts_controller.rb
+```
+ class PostsController < ApplicationController
+   def index
+ # #11
+     @posts = Post.all
+   end
+
+   def show
+   end
+
+   def new
+   end
+
+   def edit
+   end
+ end
+ ```
+At #11, we declare an instance variable @posts and assign it a collection of Post objects using the all method provided by ActiveRecord. all returns a collection of  Post objects.
+
+Run the spec again. The tests for index now pass. Our controller functions per the expectations of our spec for index. Let's write the associated view:
+
+app/views/posts/index.html.erb
+```
+ <h1>Posts#index</h1>
+ <p>Find me in app/views/posts/index.html.erb</p>
+ <h1>All Posts</h1>
+ # #12
+ <% @posts.each do |post| %>
+   <p><%= link_to post.title, post_path(post.id) %></p>
+ <% end %>
+ ```
+At #12, we iterate over each post in @posts. For each post we create a link with  post.title as the text that links to /posts/id, with the id from the post.id. Instance variables created in a controller method are available in its associated view. Since we create and assign @posts in PostsController#index, we can use it in the posts index view.
+
+Refresh http://localhost:3000/posts to see all the posts in the database.
+
+Inspect the post_path method using rails routes | grep 'posts#show'. It requires an id to route to the correct post:
+
+terminal
+$ rails routes | grep 'posts#show'
+  post GET    /posts/:id(.:format)      posts#show
+We passed the id of the post instance to the post_path method. post_path used this id to create the path. We can pass the post instance to get the same path. The  post_path method will derive the id:
+
+link_to post.title, post_path(post)
+Rails simplifies this further by allowing us to skip the post_path method altogether. If we call link_to with the object to which we're linking as a second argument, the  link_to method will detect the object, parse its id, and create the path using the id. Using that shortcut, we can simplify the posts index view:
+
+app/views/posts/index.html.erb
+```
+ <h1>All Posts</h1>
+ <% @posts.each do |post| %>
+   <p><%= link_to post.title, post %></p>
+   <p><%= link_to post.title, post_path(post.id) %></p>
+ <% end %>
+ ```
+This is an example of the advantages of Rails' "convention over configuration" approach.
+
+Let's use Bootstrap to style the posts index view:
+
+app/views/posts/index.html.erb
+```
+ <h1>All Posts</h1>
+ <% @posts.each do |post| %>
+   <p><%= link_to post.title, post %></p>
+   <div class="media">
+     <div class="media-body">
+       <h4 class="media-heading">
+         <%= link_to post.title, post %>
+       </h4>
+     </div>
+   </div>
+ <% end %>
+ ```
+posts-index
+Bootstrap provides the classes we added to the <div> and h4 tags to improve our view.
