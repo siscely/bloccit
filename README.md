@@ -405,13 +405,15 @@ Terminal
 $ rails s
 
 CSS Selectors in Rails
-Let's use CSS to modify the font color of <h1> tags :
+Let's use CSS to modify the font color of h1 tags :
 
 app/assets/stylesheets/welcome.scss
+```
  ...
  h1 {
    color: red;
  }
+ ```
 
 View the index and about pages. The content between the <h1> tags should be red now. There are a few important things to note about the code above:
 
