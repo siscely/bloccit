@@ -1227,3 +1227,379 @@ app/views/posts/index.html.erb
  ```
 posts-index
 Bootstrap provides the classes we added to the <div> and h4 tags to improve our view.
+ 
+### Creating Posts
+In this checkpoint we'll develop, test-first, the functionality for creating posts. We'll also implement a user interface (UI) so that Bloccit users can create posts.
+
+Let's write the controller tests:
+
+spec/controllers/posts_controller_spec.rb
+```
+...
+
+ #  describe "GET new" do
+ #    it "returns http success" do
+ #      get :new
+ #      expect(response).to have_http_status(:success)
+ #    end
+ #  end
+
+ # #1
+    describe "GET new" do
+      it "returns http success" do
+        get :new
+        expect(response).to have_http_status(:success)
+      end
+ 
+ # #2
+      it "renders the #new view" do
+        get :new
+        expect(response).to render_template :new
+      end
+ 
+ # #3
+      it "instantiates @post" do
+        get :new
+        expect(assigns(:post)).not_to be_nil
+      end
+    end
+ 
+    describe "POST create" do
+ # #4
+      it "increases the number of Post by 1" do
+        expect{ post :create, params: { post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+      end
+ 
+ # #5
+      it "assigns the new post to @post" do
+        post :create, params: { post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(assigns(:post)).to eq Post.last
+      end
+ 
+ # #6
+      it "redirects to the new post" do
+        post :create, params: { post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(response).to redirect_to Post.last
+      end
+    end
+
+ ...
+ ```
+There are separate new and create sections at #1 and #4. 
+
+At #2, we expect PostsController#new to render the posts new view. We use the  render_template method to verify that the correct template (view) is rendered.
+
+At #3, we expect the @post instance variable to be initialized by  PostsController#new. assigns gives us access to the @post variable, assigning it to  :post.
+
+At #4, we expect that after PostsController#create is called with the parameters  {post: {title: RandomData.random_sentence, body: RandomData.random_paragraph}}, the count of Post instances (i.e. rows in the posts table) in the database will increase by one.
+
+At #5, when create is POSTed to, we expect the newly created post to be assigned to @post.
+
+At #6, we expect to be redirected to the newly created post.
+
+Run the spec and see four failing tests that are caused because we haven't finished  new or create in PostsController.
+
+The first two tests pass without our need to add any code to PostsController. By default, new will render the post's new view and return an HTTP success code. If we were to override this default behavior, we'd need to update these tests.
+
+Let's implement the rest of the logic needed in new:
+
+app/controllers/posts_controller.rb
+```
+ ...
+
+ def new
+ # #7
+   @post = Post.new
+ end
+
+ ...
+ ```
+At #7, we create an instance variable, @post, then assign it an empty post returned by  Post.new.
+
+Run the specs for new and observe that all three Get new tests pass:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'GET new'
+-e 'GET new' runs only the specs in the describe "GET new" do block. This allows us to run only the specs covering the method we're working on.
+
+#### The form_for Helper Method
+Thanks to our updated new method in PostsController, we have the ability to access a new Post instance in the related posts new view. Open the new view and add the following code:
+
+app/views/posts/new.html.erb
+```
+ <h1>Posts#new</h1>
+ <p>Find me in app/views/posts/new.html.erb</p>
+ <%= form_for @post do |f| %>
+   <%= f.label :title %>
+   <%= f.text_field :title %>
+ 
+   <%= f.label :body %>
+   <%= f.text_area :body %>
+ 
+   <%= f.submit "Save" %>
+ <% end %>
+ ```
+Start the Rails server and go to http://localhost:3000/posts/new. View the source of the resulting page by right clicking anywhere on the page, and selecting Inspect Element. Search for a form HTML tag and you should see the following HTML code:
+```
+ <!-- #8 -->
+ <form class="new_post" id="new_post" action="/posts" accept-charset="UTF-8" method="post" abineguid="67A412E19800485B8BEF9569F6FA75CC"><input name="utf8" type="hidden" value="✓"><input type="hidden" name="authenticity_token" value="u5qH11P+xwMWIZjSHS1DssY3qrmCUpY4k7iXuyqvc9OZl1CPWfXekmZ2XLbdblOfNE/jsX6vqkqy9YYY05QyJw==">
+   <label for="post_title">Title</label>
+   <input type="text" name="post[title]" id="post_title">
+
+   <label for="post_body">Body</label>
+   <textarea name="post[body]" id="post_body"></textarea>
+
+   <input type="submit" name="commit" value="Save">
+ </form>
+ ```
+form_for generates this HTML code starting at #8. form_for, like link_to, is a Rails helper method that generates HTML code. This code allows a user to submit a post title and body, thus creating a new post.
+
+On http://localhost:3000/posts/new, enter some text into the title and body fields, then click the Save button. You should see an error message:
+
+pic
+The form attempted to submit the data to a create action, but Rails couldn't find a  create method in PostsController. Let's write create:
+
+app/controllers/posts_controller.rb
+```
+ ...
+
+   def new
+     @post = Post.new
+   end
+
+   def create
+ # #9
+     @post = Post.new
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+
+ # #10
+     if @post.save
+ # #11
+       flash[:notice] = "Post was saved."
+       redirect_to @post
+     else
+ # #12
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :new
+     end
+   end
+
+ ...
+ ```
+At #9, we call Post.new to create a new instance of Post.
+
+At #10, if we successfully save Post to the database, we display a success message using flash[:notice] and redirect the user to the route generated by @post. Redirecting to @post will direct the user to the posts show view.
+
+At #11, we assign a value to flash[:notice]. The flash hash provides a way to pass temporary values between actions. Any value placed in flash will be available in the next action and then deleted.
+
+At #12, if we do not successfully save Post to the database, we display an error message and render the new view again.
+
+When the user clicks Save, the create method is called. create either updates the database with the save method, or returns an error. Unlike new, create does not have a corresponding view. create works behind the scenes to collect the data submitted by the user and update the database. create is a POST action.
+
+Run the specs for create and observe that all three POST create tests pass:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'POST create'
+Use the form on http://localhost:3000/posts/new to create a post. You will be redirected to the, as of yet, unfinished posts show page.
+
+#### Styling the New View
+Now that new and create are implemented, we can style the corresponding view with Bootstrap:
+
+app/views/posts/new.html.erb
+```
+ <%= form_for @post do |f| %>
+   <%= f.label :title %>
+   <%= f.text_field :title %>
+ 
+   <%= f.label :body %>
+   <%= f.text_area :body %>
+ 
+   <%= f.submit "Save" %>
+ <% end %>
+ <h1>New Post</h1>
+ 
+ <div class="row">
+   <div class="col-md-4">
+     <p>Guidelines for posts</p>
+     <ul>
+       <li>Make sure it rhymes.</li>
+       <li>Don't use the letter "A".</li>
+       <li>The incessant use of hashtags will get you banned.</li>
+     </ul>
+   </div>
+   <div class="col-md-8">
+     <%= form_for @post do |f| %>
+       <div class="form-group">
+ # #13
+         <%= f.label :title %>
+ # #14
+         <%= f.text_field :title, class: 'form-control', placeholder: "Enter post title" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :body %>
+         <%= f.text_area :body, rows: 8, class: 'form-control', placeholder: "Enter post body" %>
+       </div>
+       <div class="form-group">
+ # #15
+         <%= f.submit "Save", class: 'btn btn-success' %>
+       </div>
+     <% end %>
+   </div>
+ </div>
+ ```
+At #13, we use f.label to display title. This functionality is provided by form_for, which yields a form builder object that, in turn, provides f.label. f.label, in turn, creates an HTML <label> tag for the object that is specified. In this case it will be:
+
+<label for="post_title">Title</label>
+At #14, f.text_field is another method that FormHelper provides and creates an  <input> tag of type text. It will yield:
+
+<input class="form-control" placeholder="Enter post title" type="text" name="post[title]" id="post_title">
+At #15, f.submit yields an input tag of type submit. It will yield:
+
+ <input type="submit" name="commit" value="Save" class="btn btn-success">
+Refresh http://localhost:3000/posts/new to see your changes. Then use the form to create a new post.
+
+#### Displaying the Flash Message
+When you create a post, no success message is displayed. This is because, while we're placing a value into flash, we're not displaying it in the view yet. Because every view may have a flash message at some point, we'll add it someplace universal. Let's add it to application.html.erb.
+
+Open app/views/layouts/application.html.erb and add the flash code:
+
+app/views/layouts/application.html.erb
+```
+ <!DOCTYPE html>
+ <html>
+   <head>
+     <title>Bloccit</title>
+     <%= csrf_meta_tags %>
+
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <%= stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track': 'reload' %>
+     <%= javascript_include_tag 'application', 'data-turbolinks-track': 'reload' %>
+   </head>
+
+   <body>
+     <div class="container">
+       <ul class="nav nav-tabs">
+         <li><%= link_to "Bloccit", root_path %></li>
+         <li><%= link_to "About", about_path %></li>
+       </ul>
+
+       <% if flash[:notice] %>
+         <div class="alert alert-success">
+           <button type="button" class="close" data-dismiss="alert">&times;</button>
+           <%= flash[:notice] %>
+         </div>
+       <% elsif flash[:alert] %>
+         <div class="alert alert-warning">
+           <button type="button" class="close" data-dismiss="alert">&times;</button>
+           <%= flash[:alert] %>
+         </div>
+       <% end %>
+
+
+       <%= yield %>
+     </div>
+   </body>
+ </html>
+ ```
+Create a post from http://localhost:3000/posts/new and we'll see a green flash message.
+
+#### Reading Posts
+We have the ability to create new posts, so a logical next step is to implement the ability to read them. Recall the CRUD acronym - "create read update delete"; we've completed "create" and are moving on to "read". First, let's write the tests:
+
+spec/controllers/posts_controller_spec.rb
+```
+ ...
+
+ #  describe "GET show" do
+ #    it "returns http success" do
+ #      get :show
+ #      expect(response).to have_http_status(:success)
+ #    end
+ #  end
+   describe "GET show" do
+     it "returns http success" do
+ # #16
+       get :show, params: { id: my_post.id }
+       expect(response).to have_http_status(:success)
+     end
+     it "renders the #show view" do
+ # #17
+       get :show, params: { id: my_post.id }
+       expect(response).to render_template :show
+     end
+ 
+     it "assigns my_post to @post" do
+       get :show, params: { id: my_post.id }
+ # #18
+       expect(assigns(:post)).to eq(my_post)
+     end
+   end
+
+ ...
+
+ end
+ ```
+At #16, we pass {id: my_post.id} to show as a parameter. These parameters are passed to the  params hash.
+
+The params hash contains all parameters passed to the application's controller (application_controller.rb), whether from GET, POST, or any other HTTP action.
+
+At #17, we expect the response to return the show view using the render_template matcher.
+
+At #18, we expect the post to equal my_post because we call show with the id of  my_post. We are testing that the post returned to us is the post we asked for.
+
+Run the spec:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'GET show'
+We see that the first two tests pass, but the last one fails. Let's fix it by implementing  show:
+
+app/controllers/posts_controller.rb
+```
+ class PostsController < ApplicationController
+   def index
+     @posts = Post.all
+   end
+
+   def show
+ # #19
+     @post = Post.find(params[:id])
+   end
+
+   def new
+   end
+
+   def edit
+   end
+ end
+ ```
+At #19, we find the post that corresponds to the id in the params that was passed to  show and assign it to @post. Unlike in the index method, in the show method, we populate an instance variable with a single post, rather than a collection of posts.
+
+Run the spec again and see that our tests for show pass.
+
+Open http://localhost:3000/posts and click on a post's link. We are taken to the show view, thanks to the link_to method. The show view still has boilerplate HTML code.
+
+Let's view the params hash by adding this line:
+
+app/views/posts/show.html.erb
+ <h1>Posts#show</h1>
+ <p>Find me in app/views/posts/show.html.erb</p>
+
+ <%= params %>
+When you refresh the page, you should see this:
+
+{"action"=>"show", "controller"=>"posts", "id"=>"1"}
+This hash communicates which action and controller was called. It also has the id of the post we clicked - it's encoded in the URL. In our controller, we accessed that id by calling params[:id], which, in the above case, returned "1". We then assigned the post found with that id to the @post variable.
+
+Let's replace <%= params %> in app/views/posts/show.html.erb with some post-specific code:
+
+app/views/posts/show.html.erb
+```
+ <h1>Posts#show</h1>
+ <p>Find me in app/views/posts/show.html.erb</p>
+ 
+ <%= params %>
+ <h1><%= @post.title %></h1>
+ <p><%= @post.body %></p>
+ ```
+Go back to the index view at http://localhost:3000/posts and click on a post. You should see an updated show view with data specific to the Post instance that was clicked.
