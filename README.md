@@ -404,7 +404,7 @@ Start the Rails server and make sure that you are directed to the correct pages 
 Terminal
 $ rails s
 
-#### CSS Selectors in Rails
+CSS Selectors in Rails
 Let's use CSS to modify the font color of <h1> tags :
 
 app/assets/stylesheets/welcome.scss
