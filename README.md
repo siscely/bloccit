@@ -1603,3 +1603,269 @@ app/views/posts/show.html.erb
  <p><%= @post.body %></p>
  ```
 Go back to the index view at http://localhost:3000/posts and click on a post. You should see an updated show view with data specific to the Post instance that was clicked.
+
+### Updating and Deleting posts
+Now that we can create and view posts, we'll implement the ability to edit and update them.
+
+Create a new Git feature branch for this checkpoint. See Git Checkpoint Workflow: Before Each Checkpoint for details.
+
+#### Editing and Updating Posts
+To edit existing posts we'll need to implement two actions, edit and update. The  edit action uses the edit view to allow users to update an existing post. Just as the new view submits a form to the create action, the edit view submits a form to the  update action.
+
+edit Action
+Let's create the tests for edit:
+
+spec/controllers/posts_controller_spec.rb
+```
+ ...
+ #  describe "GET edit" do
+ #    it "returns http success" do
+ #      get :edit
+ #      expect(response).to have_http_status(:success)
+ #    end
+ #  end
+   describe "GET edit" do
+     it "returns http success" do
+       get :edit, params: { id: my_post.id }
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "renders the #edit view" do
+       get :edit, params: { id: my_post.id }
+ # #1
+       expect(response).to render_template :edit
+     end
+ 
+ # #2
+     it "assigns post to be updated to @post" do
+       get :edit, params: { id: my_post.id }
+ 
+       post_instance = assigns(:post)
+ 
+       expect(post_instance.id).to eq my_post.id
+       expect(post_instance.title).to eq my_post.title
+       expect(post_instance.body).to eq my_post.body
+     end
+   end
+ ...
+ ```
+At #1, we expect the edit view to render when a post is edited.
+
+At #2, we test that edit assigns the correct post to be updated to @post.
+
+Run the edit specs:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'GET edit'
+The first two tests pass because of the stubbed edit action in PostsController and Rails' default rendering. The last test fails because we haven't finished the edit action.
+
+Modify the edit action:
+
+app/controllers/posts_controller.rb
+```
+   def edit
+     @post = Post.find(params[:id])
+   end
+   ```
+Rerun the edit specs to confirm all three pass:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'GET edit'
+
+#### update Action
+With the edit action implemented and the specs passing, it's time to implement  update to receive the edited posts. Let's TDD update:
+
+spec/controllers/posts_controller_spec.rb
+```
+ ...
+   describe "PUT update" do
+     it "updates post with expected attributes" do
+       new_title = RandomData.random_sentence
+       new_body = RandomData.random_paragraph
+ 
+       put :update, params: { id: my_post.id, post: {title: new_title, body: new_body } }
+ 
+ # #3
+       updated_post = assigns(:post)
+       expect(updated_post.id).to eq my_post.id
+       expect(updated_post.title).to eq new_title
+       expect(updated_post.body).to eq new_body
+     end
+ 
+     it "redirects to the updated post" do
+       new_title = RandomData.random_sentence
+       new_body = RandomData.random_paragraph
+ 
+ # #4
+       put :update, params: { id: my_post.id, post: {title: new_title, body: new_body } }
+       expect(response).to redirect_to my_post
+     end
+   end
+ ...
+ ```
+At #3, we test that @post was updated with the title and body passed to update. We also test that @post's id was not changed.
+
+At #4, we expect to be redirected to the posts show view after the update.
+
+Run the update specs.
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'PUT update'
+These tests both fail because we haven't implemented the update action in  PostsController. Let's implement it:
+
+app/controllers/posts_controller.rb
+```
+   def update
+     @post = Post.find(params[:id])
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+ 
+     if @post.save
+       flash[:notice] = "Post was updated."
+       redirect_to @post
+     else
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :edit
+     end
+   end
+   ```
+Run the update tests and verify that they both pass:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'PUT update'
+
+#### Edit and Update Views
+Update the posts edit view to display a form that allows users to update posts:
+
+app/views/posts/edit.html.erb
+```
+ <h1>Posts#edit</h1>
+ <p>Find me in app/views/posts/edit.html.erb</p>
+ <h1>Edit Post</h1>
+ 
+ <div class="row">
+   <div class="col-md-4">
+     <p>Guidelines for posts</p>
+     <ul>
+       <li>Make sure it rhymes.</li>
+       <li>Don't use the letter "A".</li>
+       <li>The incessant use of hashtags will get you banned.</li>
+     </ul>
+   </div>
+   <div class="col-md-8">
+     <%= form_for @post do |f| %>
+       <div class="form-group">
+         <%= f.label :title %>
+         <%= f.text_field :title, class: 'form-control', placeholder: "Enter post title" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :body %>
+         <%= f.text_area :body, rows: 8, class: 'form-control', placeholder: "Enter post body" %>
+       </div>
+       <div class="form-group">
+         <%= f.submit "Save", class: 'btn btn-success' %>
+       </div>
+     <% end %>
+   </div>
+ </div>
+ ```
+Let's add a link to edit a post on the show view:
+
+app/views/posts/show.html.erb
+```
+ <h1><%= @post.title %></h1>
+ <p><%= @post.body %></p>
+ <h1><%= @post.title %></h1>
+ 
+ <div class="row">
+   <div class="col-md-8">
+     <p><%= @post.body %></p>
+   </div>
+   <div class="col-md-4">
+ <!-- #5 -->
+     <%= link_to "Edit", edit_post_path(@post), class: 'btn btn-success' %>
+   </div>
+ </div>
+ ```
+At #5, we format a link as an Edit button which directs a user to  /posts/@post.id/edit.  edit_post_path(@post) is a helper method that is generated in  routes.rb by resources :posts. (Run rails routes from the command line to view the post routes, if you need a refresher.)
+
+Open http://localhost:3000/posts, click on a post, edit, and save it.
+
+#### Destroy
+We should provide users with the ability to delete posts. Let's write the tests for the  Post#destroy action:
+
+spec/controllers/posts_controller_spec.rb
+```
+...
+
+   describe "DELETE destroy" do
+     it "deletes the post" do
+       delete :destroy, params: { id: my_post.id }
+ # #6
+       count = Post.where({id: my_post.id}).size
+       expect(count).to eq 0
+     end
+ 
+     it "redirects to posts index" do
+       delete :destroy, params: { id: my_post.id }
+ # #7
+       expect(response).to redirect_to posts_path
+     end
+   end
+
+...
+```
+At #6, we search the database for a post with an id equal to my_post.id. This returns an Array. We assign the size of the array to count, and we expect count to equal zero. This test asserts that the database won't have a matching post after destroy is called.
+
+At #7, we expect to be redirected to the posts index view after a post has been deleted.
+
+Run these tests and confirm they both fail because we haven't defined the destroy action yet:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e 'DELETE destroy'
+Open PostsController and implement the destroy action to make the previous tests pass:
+
+app/controllers/posts_controller.rb
+```
+...
+
+   def destroy
+     @post = Post.find(params[:id])
+ 
+ # #8
+     if @post.destroy
+       flash[:notice] = "\"#{@post.title}\" was deleted successfully."
+       redirect_to posts_path
+     else
+       flash.now[:alert] = "There was an error deleting the post."
+       render :show
+     end
+   end
+
+...
+```
+At #8, we call destroy on @post. If that call is successful, we set a flash message and redirect the user to the posts index view. If destroy fails then we redirect the user to the show view using render :show.
+
+Comments are dependent on a post's existence because of the has_many :comments declaration in Post. When we delete a post, we also need to delete all related comments. We'll perform a "cascade delete", which ensures that when a post is deleted, all of its comments are too. Let's modify Post to handle this:
+
+app/models/post.rb
+   has_many :comments
+   has_many :comments, dependent: :destroy
+Let's use link_to to add a link to delete posts on the show view:
+
+app/views/posts/show.html.erb
+```
+ <h1><%= @post.title %></h1>
+
+ <div class="row">
+   <div class="col-md-8">
+     <p><%= @post.body %></p>
+   </div>
+ <div class="col-md-4">
+   <%= link_to "Edit", edit_post_path(@post), class: 'btn btn-success' %>
+ <!-- #9 -->
+   <%= link_to "Delete Post", @post, method: :delete, class: 'btn btn-danger', data: {confirm: 'Are you sure you want to delete this post?'} %>
+   </div>
+ </div>
+ ```
+At #9, we use link_to to create a delete button. The text on the button is Delete Post. We override the default method (:post) with :delete so that when the button is pressed the route called is the delete route. We style the button by setting class: to 'btn btn-danger'. We pass a Hash with the confirm: key to the data: argument. This confirms the action with a JavaScript confirmation dialog when a user presses the button.
