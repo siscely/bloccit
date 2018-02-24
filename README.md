@@ -1869,3 +1869,1293 @@ app/views/posts/show.html.erb
  </div>
  ```
 At #9, we use link_to to create a delete button. The text on the button is Delete Post. We override the default method (:post) with :delete so that when the button is pressed the route called is the delete route. We style the button by setting class: to 'btn btn-danger'. We pass a Hash with the confirm: key to the data: argument. This confirms the action with a JavaScript confirmation dialog when a user presses the button.
+
+We've built the functionality to create posts, but we don't have a way to organize them. We anticipate that Bloccit users will create a large number of posts, and will therefore need a way to organize, or categorize them.  we'll create a topics resource that will be used to organize posts. Along the way, we'll learn how to nest resources and refactor code.
+
+Create a new Git feature branch for this checkpoint. 
+
+## Topic Model
+The first step in creating a new topic resource is to create a topic model. An instance of Topic will require a name and description attribute. We'll also create a public attribute, of a Boolean data type, to allow users to restrict access to topics.
+
+### Create the topic model:
+
+Terminal
+```
+$ rails generate model topic name:string public:boolean description:text
+      invoke  active_record
+      create    db/migrate/20150625221905_create_topics.rb
+      create    app/models/topic.rb
+      invoke    rspec
+      create      spec/models/topic_spec.rb
+      ```
+Open the migration file and set the public attribute to true by default:
+
+db/migrate/20150729181446_create_topics.rb
+```
+ class CreateTopics < ActiveRecord::Migration[5.0]
+   def change
+     create_table :topics do |t|
+       t.string :name
+       t.boolean :public
+       t.boolean :public, default: true
+       t.text :description
+
+       t.timestamps
+     end
+   end
+ end
+ ```
+Run the migration using rails db:migrate:
+
+Terminal
+$ rails db:migrate
+Topic Specs
+Add the following tests to topic_spec.rb:
+
+spec/models/topic_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Topic, type: :model do
+   let(:name) { RandomData.random_sentence }
+   let(:description) { RandomData.random_paragraph }
+   let(:public) { true }
+   let(:topic) { Topic.create!(name: name, description: description) }
+
+ # #1
+   describe "attributes" do
+     it "has name, description, and public attributes" do
+       expect(topic).to have_attributes(name: name, description: description, public: public)
+     end
+
+ # #2
+     it "is public by default" do
+       expect(topic.public).to be(true)
+     end
+   end
+ end
+ ```
+At #1, we confirm that a topic responds to the appropriate attributes.
+
+At #2, we confirm that the public attribute is set to true by default.
+
+Run topic_spec.rb to confirm all four tests pass:
+
+Terminal
+$ rspec spec/models/topic_spec.rb
+To organize posts by topic we will need to build an association between topics and posts. To TDD this association we'll use the Shoulda gem. Shoulda makes it easier for us to write association tests by providing some handy methods that RSpec doesn't have. Add Shoulda to Gemfile and run bundle install:
+
+Gemfile
+```
+ group :development, :test do
+   gem 'rspec-rails', '~> 3.0'
+   gem 'rails-controller-testing'
+   gem 'shoulda'
+ end
+ ```
+Terminal
+$ bundle install
+Use methods provided by Shoulda and add the following tests to topic_spec.rb:
+
+spec/models/topic_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Topic, type: :model do
+   let(:name) { RandomData.random_sentence }
+   let(:description) { RandomData.random_paragraph }
+   let(:public) { true }
+   let(:topic) { Topic.create!(name: name, description: description) }
+
+   it { is_expected.to have_many(:posts) }
+ ...
+ ```
+Now add tests for post_spec.rb:
+
+spec/models/post_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Post, type: :model do
+   let(:post) { Post.create!(title: "New Post Title", body: "New Post Body") }
+   let(:name) { RandomData.random_sentence }
+   let(:description) { RandomData.random_paragraph }
+   let(:title) { RandomData.random_sentence }
+   let(:body) { RandomData.random_paragraph }
+ # #3
+   let(:topic) { Topic.create!(name: name, description: description) }
+ # #4
+   let(:post) { topic.posts.create!(title: title, body: body) }
+ 
+   it { is_expected.to belong_to(:topic) }
+
+   describe "attributes" do
+     it "has a title and body attribute" do
+       expect(post).to have_attributes(title: "New Post Title", body: "New Post Body")
+       expect(post).to have_attributes(title: title, body: body)
+     end
+   end
+ end
+ ```
+At #3, we create a parent topic for post.
+
+At #4, we associate post with topic via topic.posts.create!. This is a chained method call which creates a post for a given topic.
+
+Finally, we'll need to update comment_spec.rb to account for the new association:
+
+spec/models/comment_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe Comment, type: :model do
+   let(:post) { Post.create!(title: "New Post Title", body: "New Post Body") }
+   let(:topic) { Topic.create!(name: RandomData.random_sentence, description: RandomData.random_paragraph) }
+   let(:post) { topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph) }
+   let(:comment) { Comment.create!(body: 'Comment Body', post: post) }
+
+   describe "attributes" do
+ ...
+ ```
+Run the spec and confirm that the test doesn't pass.
+
+Run topic_spec.rb and post_spec.rb. There will be error messages for each spec because topics and posts are not associated. Let's fix these errors by creating the association.
+
+#### Associations
+Database tables are associated via foreign keys. 
+
+topic_id foreign key
+
+In the above association, Post.topic_id is a foreign_key that references Topic.id.
+
+Because posts belong to topics, we'll add a topic_id foreign key attribute to the posts table:
+
+Terminal
+```
+$ rails generate migration AddTopicToPosts topic_id:integer:index
+      invoke  active_record
+      create    db/migrate/20150729184746_add_topic_to_posts.rb
+      ```
+This generated the following migration file:
+
+db/migrate/20150729184746_add_topic_to_posts.rb
+```
+class AddTopicToPosts < ActiveRecord::Migration
+  def change
+ # #5
+    add_column :posts, :topic_id, :integer
+ # #6
+    add_index :posts, :topic_id
+  end
+end
+```
+At #5, we see that the name we gave the migration, AddTopicToPosts, is very important. 
+
+At #6, we created an index on topic_id with the generator. An index improves the speed of operations on a database table.
+
+You should always index your foreign key columns.
+
+Run the migration to add the foreign key:
+
+Terminal
+$ rails db:migrate
+Update Post and Topic to reflect the association:
+
+app/models/post.rb
+```
+ class Post < ApplicationRecord
+   belongs_to :topic
+   has_many :comments, dependent: :destroy
+ end
+app/models/topic.rb
+ class Topic < ApplicationRecord
+   has_many :posts
+ end
+ ```
+Run topic_spec.rb and post_spec.rb to confirm that all the tests are passing:
+
+Terminal
+$ rspec spec/models/topic_spec.rb
+$ rspec spec/models/post_spec.rb
+Seeds
+We also need to update seeds.rb, because none of the posts in the database have an associated topic. Create some new topics and assign each post to a random topic:
+
+db/seeds.rb
+```
+ # Create Topics
+ 15.times do
+   Topic.create!(
+     name:         RandomData.random_sentence,
+     description:  RandomData.random_paragraph
+   )
+ end
+ topics = Topic.all
+
+ # Create Posts
+ 50.times do
+   Post.create!(
+     topic:  topics.sample,
+     title:  RandomData.random_sentence,
+     body:   RandomData.random_paragraph
+   )
+ end
+
+ posts = Post.all
+
+ # Create Comments
+ 100.times do
+   Comment.create!(
+     post: posts.sample,
+     body: RandomData.random_paragraph
+   )
+ end
+
+ puts "Seed finished"
+ puts "#{Topic.count} topics created"
+ puts "#{Post.count} posts created"
+ puts "#{Comment.count} comments created"
+ ```
+Empty the existing database of posts and topics and reseed it with the reset command:
+
+Terminal
+$ rails db:reset
+The Topics Resource
+Our topics resource has a model, but not a controller. Let's generate a topics controller to complete our topics resource, as well as the necessary routes and views to present topics to users:
+
+Terminal
+$ rails generate controller Topics
+We didn't pass any action arguments to the controller generator. Instead, we'll create the actions and views that topics require manually.
+
+Build the resourceful routes:
+
+config/routes.rb
+```
+ Rails.application.routes.draw do
+   resources :topics
+   resources :posts
+
+   get 'about' => 'welcome#about'
+
+   root 'welcome#index'
+ end
+ ```
+Run rails routes from the command line to examine the routes we created for topics. resources creates the seven standard CRUD routes we need for topics.
+
+#### Topics Index
+As with PostsController, we'll TDD the actions in TopicsController, starting with the  index action:
+
+spec/controllers/topics_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe TopicsController, type: :controller do
+   let(:my_topic) { Topic.create!(name: RandomData.random_sentence, description: RandomData.random_paragraph) }
+ 
+   describe "GET index" do
+     it "returns http success" do
+       get :index
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "assigns my_topic to @topics" do
+       get :index
+       expect(assigns(:topics)).to eq([my_topic])
+     end
+   end
+ end
+ ```
+This test follows the pattern we established when testing PostsController. Using  let, we create a my_topic variable to use in our tests. We then write two tests to confirm the expected behavior of the index action.
+
+Run the index section of the TopicsContollerSpec to confirm that both tests fail:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET index'
+Add the index action to TopicsController and provide an array of topics to the index view to pass the tests:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+   def index
+     @topics = Topic.all
+   end
+ end
+ ```
+To pass the tests, we need to create the topics index view to display a list of all topics with their names and descriptions:
+
+Terminal
+$ touch app/views/topics/index.html.erb
+With this view created, topics_controller_spec.rb will now pass both index tests:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET index'
+Fill out the view to display a list of all topics:
+
+app/views/topics/index.html.erb
+```
+ <h1>Topics</h1>
+ 
+ <div class="row">
+   <div class="col-md-8">
+ <!-- #7 -->
+     <% @topics.each do |topic| %>
+       <div class="media">
+         <div class="media-body">
+           <h4 class="media-heading">
+ <!-- #8 -->
+             <%= link_to topic.name, topic %>
+           </h4>
+           <small>
+             <%= topic.description %>
+           </small>
+         </div>
+       </div>
+     <% end %>
+   </div>
+   <div class="col-md-4">
+ <!-- #9 -->
+     <%= link_to "New Topic", new_topic_path, class: 'btn btn-success' %>
+   </div>
+ </div>
+ ```
+At #7, we loop over each topic in @topics.
+
+At #8, we create a link to the show view for each topic.
+
+At #9, we create a link to create a new topic.
+
+Visit http://localhost:3000/topics. You should see the topics that were created in  seeds.rb and a New Topic button.
+
+#### Show Topic
+When a user clicks on a topic, they should be taken to its show view and shown the posts that belong to that topic.
+
+Add tests for the topic show action:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "GET show" do
+     it "returns http success" do
+       get :show, params: { id: my_topic.id }
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "renders the #show view" do
+       get :show, params: { id: my_topic.id }
+       expect(response).to render_template :show
+     end
+ 
+     it "assigns my_topic to @topic" do
+       get :show, params: { id: my_topic.id }
+       expect(assigns(:topic)).to eq(my_topic)
+     end
+   end
+ end
+ ```
+These three tests should fail:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET show'
+Update TopicsController to add a show action
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+   def index
+     @topics = Topic.all
+   end
+ 
+   def show
+     @topic = Topic.find(params[:id])
+   end
+ end
+ ```
+Our tests will still fail because of the missing show view, so we'll create that view next:
+
+Terminal
+$ touch app/views/topics/show.html.erb
+With the show view created, topics_controller_spec.rb will now pass all three show tests:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET show'
+Fill out the view to display the topic information and all associated posts:
+
+app/views/topics/show.html.erb
+```
+ <h1><%= @topic.name %></h1>
+ 
+ <%= link_to "Edit Topic", edit_topic_path, class: 'btn btn-success' %>
+ 
+ <div class="row">
+   <div class="col-md-8">
+     <p class="lead"><%= @topic.description %></p>
+ <!-- #10 -->
+     <% @topic.posts.each do |post| %>
+       <div class="media">
+         <div class="media-body">
+           <h4 class="media-heading">
+             <%= link_to post.title, post %>
+           </h4>
+         </div>
+       </div>
+     <% end %>
+   </div>
+   <div class="col-md-4">
+     <%= link_to "New Post", new_post_path(@topic), class: 'btn btn-success' %>
+   </div>
+ </div>
+ ```
+At #10, we iterate over the posts belonging to @topic, and display each post.
+
+Open http://localhost:3000/topics and click on a topic to confirm that the topic show view works as expected.
+
+#### New Topics
+Users will want to be able to create new topics, so let's implement the new and  create actions using TDD.
+
+new Action
+Add tests for the new action:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "renders the #new view" do
+       get :new
+       expect(response).to render_template :new
+     end
+ 
+     it "initializes @topic" do
+       get :new
+       expect(assigns(:topic)).not_to be_nil
+     end
+   end
+ end
+ ```
+The three new tests will fail because TopicsController doesn't implement the new action yet:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET new'
+Implement the new action:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+   def index
+     @topics = Topic.all
+   end
+
+   def show
+     @topic = Topic.find(params[:id])
+   end
+ 
+   def new
+     @topic = Topic.new
+   end
+ end
+ ```
+Our tests are still failing because of the missing new view, so let's create it now:
+
+Terminal
+$ touch app/views/topics/new.html.erb
+With the new view created, topics_controller_spec.rb will now pass all three new tests:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET new'
+Add a form for creating new topics:
+
+app/views/topics/new.html.erb
+```
+ <h1>New Topic</h1>
+ 
+ <div class="row">
+   <div class="col-md-4">
+     <p>Guidelines for topics:</p>
+     <ul>
+       <li>Make sure the topic is appropriate.</li>
+       <li>Never insult dogs.</li>
+       <li>Smile when you type.</li>
+     </ul>
+   </div>
+   <div class="col-md-8">
+     <%= form_for @topic do |f| %>
+       <div class="form-group">
+         <%= f.label :name %>
+         <%= f.text_field :name, class: 'form-control', placeholder: "Enter topic name" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :description %>
+         <%= f.text_area :description, rows: 8, class: 'form-control', placeholder: "Enter topic description" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :public, class: 'checkbox' do %>
+           <%= f.check_box :public %> Public topic
+         <% end %>
+       </div>
+       <%= f.submit "Save", class: 'btn btn-success' %>
+     <% end %>
+   </div>
+ </div>
+ ``
+Open http://localhost:3000/topics/new and click on the New Topic button to confirm that the topic new view looks as expected.
+
+The user interface (UI) for creating new topics is complete, but if we try to submit the form, we'll get an error. This is because we haven't implemented the create action, which is used for inserting new records into the database.
+
+#### create Action
+Add three tests for create:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "POST create" do
+     it "increases the number of topics by 1" do
+       expect{ post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } } }.to change(Topic,:count).by(1)
+     end
+ 
+     it "assigns Topic.last to @topic" do
+       post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+       expect(assigns(:topic)).to eq Topic.last
+     end
+ 
+     it "redirects to the new topic" do
+       post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+       expect(response).to redirect_to Topic.last
+     end
+   end
+ end
+ ```
+Run these tests and confirm that they're failing:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'POST create'
+Pass these tests by implementing the create action:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+   def index
+     @topics = Topic.all
+   end
+
+   def show
+     @topic = Topic.find(params[:id])
+   end
+
+   def new
+     @topic = Topic.new
+   end
+ 
+   def create
+     @topic = Topic.new
+     @topic.name = params[:topic][:name]
+     @topic.description = params[:topic][:description]
+     @topic.public = params[:topic][:public]
+ 
+     if @topic.save
+       redirect_to @topic, notice: "Topic was saved successfully."
+     else
+       flash.now[:alert] = "Error creating topic. Please try again."
+       render :new
+     end
+   end
+ end
+ ```
+The create tests in topics_controller_spec.rb should now pass:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'POST create'
+Create a couple of new topics in your browser to confirm that new and create work as expected.
+
+#### Edit Topic
+Implement the edit and update actions so users can edit existing topics, starting with edit.
+
+edit Action
+Let's TDD the edit action first:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "GET edit" do
+     it "returns http success" do
+       get :edit, {id: my_topic.id}
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "renders the #edit view" do
+       get :edit, {id: my_topic.id}
+       expect(response).to render_template :edit
+     end
+ 
+     it "assigns topic to be updated to @topic" do
+       get :edit, {id: my_topic.id}
+       topic_instance = assigns(:topic)
+ 
+       expect(topic_instance.id).to eq my_topic.id
+       expect(topic_instance.name).to eq my_topic.name
+       expect(topic_instance.description).to eq my_topic.description
+     end
+   end
+ end
+ ```
+These tests will fail until we implement the edit action:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET edit'
+Implement the edit action:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+ ...
+ 
+   def edit
+     @topic = Topic.find(params[:id])
+   end
+ 
+ end
+ ```
+Our tests are still failing because of the missing edit view:
+
+Terminal
+$ touch app/views/topics/edit.html.erb
+topics_controller_spec.rb will now pass all three edit tests:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'GET edit'
+Update the edit view to give users the ability to update a topic's name, description, and public attributes:
+
+app/views/topics/edit.html.erb
+```
+ <h1>Edit Topic</h1>
+ 
+ <div class="row">
+   <div class="col-md-4">
+     <p>Guidelines for topics:</p>
+     <ul>
+       <li>Make sure the topic is appropriate.</li>
+       <li>Never insult dogs.</li>
+       <li>Smile when you type.</li>
+     </ul>
+   </div>
+   <div class="col-md-8">
+     <%= form_for @topic do |f| %>
+       <div class="form-group">
+         <%= f.label :name %>
+         <%= f.text_field :name, class: 'form-control', placeholder: "Enter topic name" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :description %>
+         <%= f.text_area :description, rows: 8, class: 'form-control', placeholder: "Enter topic description" %>
+       </div>
+       <div class="form-group">
+ <!-- #11 -->
+         <%= f.label :public, class: 'checkbox' do %>
+           <%= f.check_box :public %> Public topic
+         <% end %>
+       </div>
+       <%= f.submit "Save", class: 'btn btn-success' %>
+     <% end %>
+   </div>
+ </div>
+ ```
+At #11, we pass a block to f.label to generate the HTML for a checkbox.
+
+From http://localhost:3000/topics click on a topic and the click the Edit Topic button to confirm that the topic edit view and form look as expected.
+
+#### update Action
+Let's create the ability to update a topic's database record by implementing the  update action. Add three tests for update:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "PUT update" do
+     it "updates topic with expected attributes" do
+       new_name = RandomData.random_sentence
+       new_description = RandomData.random_paragraph
+ 
+       put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description } }
+ 
+       updated_topic = assigns(:topic)
+       expect(updated_topic.id).to eq my_topic.id
+       expect(updated_topic.name).to eq new_name
+       expect(updated_topic.description).to eq new_description
+     end
+ 
+     it "redirects to the updated topic" do
+       new_name = RandomData.random_sentence
+       new_description = RandomData.random_paragraph
+ 
+       put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description } }
+       expect(response).to redirect_to my_topic
+     end
+   end
+ end
+ ```
+Run these tests and confirm that they fail:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'PUT update'
+Pass the tests by implementing the update action:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+  ...
+ 
+   def update
+     @topic = Topic.find(params[:id])
+ 
+     @topic.name = params[:topic][:name]
+     @topic.description = params[:topic][:description]
+     @topic.public = params[:topic][:public]
+ 
+     if @topic.save
+        flash[:notice] = "Topic was updated."
+       redirect_to @topic
+     else
+       flash.now[:alert] = "Error saving topic. Please try again."
+       render :edit
+     end
+   end
+ 
+ end
+ ```
+The update tests in topics_controller_spec.rb should now pass:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'PUT update'
+Edit some topics in your browser to confirm that the edit and update work as expected.
+
+#### Delete Topic
+Users may want to delete topics, so we'll implement destroy using TDD:
+
+spec/controllers/topics_controller_spec.rb
+```
+ ...
+   describe "DELETE destroy" do
+     it "deletes the topic" do
+       delete :destroy, params { id: my_topic.id }
+       count = Post.where({id: my_topic.id}).size
+       expect(count).to eq 0
+     end
+ 
+     it "redirects to topics index" do
+       delete :destroy, params: { id: my_topic.id }
+       expect(response).to redirect_to topics_path
+     end
+   end
+ end
+ ```
+Run these tests:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'DELETE destroy'
+They'll both fail until we implement destroy:
+
+app/controllers/topics_controller.rb
+```
+...
+   def destroy
+     @topic = Topic.find(params[:id])
+ 
+     if @topic.destroy
+       flash[:notice] = "\"#{@topic.name}\" was deleted successfully."
+       redirect_to action: :index
+     else
+       flash.now[:alert] = "There was an error deleting the topic."
+       render :show
+     end
+   end
+ end
+ ```
+redirect_to action: :index is the same as redirect_to topics_path because  topics_path routes to the index action per Rails' resourceful routing.
+
+Our tests should now pass:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb -e 'DELETE destroy'
+Update the show view to display a Delete Topic button:
+
+app/views/topics/show.html.erb
+```
+ <h1><%= @topic.name %></h1>
+
+ <%= link_to "Edit Topic", edit_topic_path, class: 'btn btn-success' %>
+ <%= link_to "Delete Topic", @topic, method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this topic?' } %>
+ ...
+ ```
+When we delete a topic, its associated posts should also be deleted:
+
+models/topic.rb
+```
+ class Topic < ApplicationRecord
+   has_many :posts
+   has_many :posts, dependent: :destroy
+ end
+ ```
+Because comments already depend on posts, they will also be deleted when a topic is deleted.
+
+Visit http://localhost:3000/topics and click on a topic and make sure you can delete it.
+
+### Nesting Posts
+Nesting is a term we use when one object should be interacted with in the exclusive context of another object. Associated models, like posts and topics, don't need to be nested, but we should nest posts in topics because we never want posts to be viewed, created, or edited in isolation. A nested post's URL will be scoped to topic, for example: /topics/1/posts/3. This URL still meets RESTful conventions, and is supported by Rails.
+
+To nest posts under topics, we'll need to refactor routes.rb, the PostsController, and the topic and post views. Before we refactor, let's update our tests in anticipation of our nested posts:
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe PostsController do
+ # #12
+   let(:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
+ # #13
+   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph) }
+
+   let(:my_post) { Post.create( title:  RandomData.random_sentence, body:   RandomData.random_paragraph) }
+
+ # #14
+   describe "GET index" do
+     it "returns http success" do
+       get :index
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "assigns [my_post] to @posts" do
+       get :index
+       expect(assigns(:posts)).to eq([my_post])
+     end
+   end
+   ```
+Because posts will be nested under topics, at #12 we create a parent topic named  my_topic.
+
+At #13, we update how we create my_post so that it will belong to my_topic.
+
+At #14, we remove the index tests. Posts will no longer need an index view because they'll be displayed on the show view of their parent topic.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "GET show" do
+     it "returns http success" do
+       get :show, params: { id: my_post.id }
+ # #15
+       get :show, params: { topic_id: my_topic.id, id: my_post.id }
+       expect(response).to have_http_status(:success)
+     end
+
+     it "renders the #show view" do
+       get :show, params: { id: my_post.id }
+ # #16
+       get :show, params: { topic_id: my_topic.id, id: my_post.id }
+       expect(response).to render_template :show
+     end
+
+     it "assigns my_post to @post" do
+       get :show, params: { id: my_post.id }
+ # #17
+       get :show, params: { topic_id: my_topic.id, id: my_post.id }
+       expect(assigns(:post)).to eq(my_post)
+     end
+   end
+   ```
+Posts routes will now include the topic_id of the parent topic, so at #15, #16, and #17 we update our get :show request to include the id of the parent topic.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+ # #18
+       get :new, params: { topic_id: my_topic.id }
+       expect(response).to have_http_status(:success)
+     end
+
+     it "renders the #new view" do
+       get :new
+ # #19
+       get :new, params: { topic_id: my_topic.id }
+       expect(response).to render_template :new
+     end
+
+     it "initializes @post" do
+       get :new
+# #20
+       get :new, params: { topic_id: my_topic.id }
+       expect(assigns(:post)).not_to be_nil
+     end
+   end
+   ```
+At #18, #19, and #20 we update the get :new request to include the id of the parent topic.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "POST create" do
+     it "increases the number of Post by 1" do
+       expect{ post :create, params: { post: {title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+ # #21
+       expect{ post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+     end
+
+     it "assigns the new post to @post" do
+       post :create, params: { post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+ # #22
+       post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+       expect(assigns(:post)).to eq Post.last
+     end
+
+     it "redirects to the new post" do
+       post :create, params: { post: { name: RandomData.random_sentence, body: RandomData.random_paragraph } }
+       expect(response).to redirect_to Post.last
+ # #23
+       post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+ # #24
+       expect(response).to redirect_to [my_topic, Post.last]
+     end
+   end
+   ```
+At #21, #22, and #23 we update the post :create request to include the id of the parent topic.
+
+At #24, because the route for the posts show view will also be updated to reflect nested posts, instead of redirecting to Post.last, we redirect to  [my_topic, Post.last]. Rails' router can take an array of objects and build a route to the show page of the last object in the array, nesting it under the other objects in the array.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "GET edit" do
+     it "returns http success" do
+       get :edit, params: { id: my_post.id }
+ # #25
+       get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+       expect(response).to have_http_status(:success)
+     end
+
+     it "renders the #edit view" do
+       get :edit, params: { id: my_post.id }
+ # #26
+       get :edit, topic_id: my_topic.id, id: my_post.id
+       expect(response).to render_template :edit
+     end
+
+     it "assigns post to be updated to @post" do
+       get :edit, params: { id: my_post.id }
+ # #27
+       get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+       post_instance = assigns(:post)
+
+       expect(post_instance.id).to eq my_post.id
+       expect(post_instance.title).to eq my_post.title
+       expect(post_instance.body).to eq my_post.body
+     end
+   end
+   ```
+At #25, #26, and #27 we update the get :edit request to include the id of the parent topic.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "PUT update" do
+     it "updates post with expected attributes" do
+       new_title = RandomData.random_sentence
+       new_body = RandomData.random_paragraph
+
+       put :update, params: { id: my_post.id, post: {title: new_title, body: new_body } }
+ # #28
+       put :update, params: { topic_id: my_topic.id, id: my_post.id, post: {title: new_title, body: new_body } }
+
+       updated_post = assigns(:post)
+       expect(updated_post.id).to eq my_post.id
+       expect(updated_post.title).to eq new_title
+       expect(updated_post.body).to eq new_body
+     end
+
+     it "redirects to the updated post" do
+       new_title = RandomData.random_sentence
+       new_body = RandomData.random_paragraph
+
+       put :update, params: { id: my_post.id, post: { title: new_title, body: new_body } }
+       expect(response).to redirect_to my_post
+ # #29
+       put :update, params: { topic_id: my_topic.id, id: my_post.id, post: {title: new_title, body: new_body } }
+ # #30
+       expect(response).to redirect_to [my_topic, my_post]
+     end
+   end
+   ```
+At #28 and #29 we update the put :update request to include the id of the parent topic.
+
+At #30, we replace redirect_to my_post with redirect_to [my_topic, my_post] so that we'll be redirected to the posts show view after we nest posts.
+
+spec/controllers/posts_controller_spec.rb
+```
+   describe "DELETE destroy" do
+     it "deletes the post" do
+       delete :destroy, params: { id: my_post.id }
+ # #31
+       delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+       count = Post.where({id: my_post.id}).size
+       expect(count).to eq 0
+     end
+
+     it "redirects to posts index" do
+       delete :destroy, params: { id: my_post.id }
+       expect(response).to redirect_to posts_path
+     it "redirects to topic show" do
+ # #32
+       delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+ # #33
+       expect(response).to redirect_to my_topic
+     end
+   end
+ end
+ ```
+At #31 and #32 we update the delete :destroy request to include the id of the parent topic.
+
+At #33, we want to be redirected to the topics show view instead of the posts index view.
+
+With our tests ready, let's update routes.rb to nest posts:
+
+config/routes.rb
+```
+ Rails.application.routes.draw do
+
+   resources :topics
+   resources :posts
+   resources :topics do
+ # #34
+     resources :posts, except: [:index]
+   end
+
+   get 'about' => 'welcome#about'
+
+   root 'welcome#index'
+ end
+ ```
+At #34 we pass resources :posts to the resources :topics block. This nests the post routes under the topic routes.
+
+Examine the new post routes:
+
+Terminal
+$ rails routes | grep post
+             topic_posts POST   /topics/:topic_id/posts(.:format)          posts#create
+          new_topic_post GET    /topics/:topic_id/posts/new(.:format)      posts#new
+         edit_topic_post GET    /topics/:topic_id/posts/:id/edit(.:format) posts#edit
+              topic_post GET    /topics/:topic_id/posts/:id(.:format)      posts#show
+                         PATCH  /topics/:topic_id/posts/:id(.:format)      posts#update
+                         PUT    /topics/:topic_id/posts/:id(.:format)      posts#update
+                         DELETE /topics/:topic_id/posts/:id(.:format)      posts#destroy
+As you can see in the output above, all post URLs are now scoped to a topic.
+
+There's no longer an index route for posts. This is because the posts index view is no longer needed. All posts will be displayed with respect to a topic now, on the topics show view. Remove the index action from the PostsController:
+
+app/controllers/posts_controller.rb
+```
+ class PostsController < ApplicationController
+   def index
+     @posts = Post.all
+   end
+ ...
+ ```
+Remove app/views/posts/index.html.erb and stage the removal:
+
+Terminal
+$ git rm app/views/posts/index.html.erb
+Run the tests and we'll see seven failures, caused by the PostsController:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+...
+16 examples, 7 failures
+Let's implement the code to pass the tests:
+
+app/controllers/posts_controller.rb
+```
+ class PostsController < ApplicationController
+   def show
+     @post = Post.find(params[:id])
+   end
+
+   def new
+     @topic = Topic.find(params[:topic_id])
+     @post = Post.new
+   end
+
+   def create
+     @post = Post.new
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+     @topic = Topic.find(params[:topic_id])
+ # #35
+     @post.topic = @topic
+
+     if @post.save
+       flash[:notice] = "Post was saved."
+ # #36
+       redirect_to @post
+       redirect_to [@topic, @post]
+     else
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :new
+     end
+   end
+
+   def edit
+     @post = Post.find(params[:id])
+   end
+
+   def update
+     @post = Post.find(params[:id])
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+
+     if @post.save
+       flash[:notice] = "Post was updated."
+ # #37
+       redirect_to @post
+       redirect_to [@post.topic, @post]
+     else
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :edit
+     end
+   end
+
+   def destroy
+     @post = Post.find(params[:id])
+
+     if @post.destroy
+       flash[:notice] = "\"#{@post.title}\" was deleted successfully."
+ # #38
+        redirect_to posts_path
+        redirect_to @post.topic
+     else
+       flash.now[:alert] = "There was an error deleting the post."
+       render :show
+     end
+   end
+ end
+ ```
+At #35 we assign a topic to a post.
+
+At #36 and #37 we change the redirect to use the nested post path.
+
+At #38, when a post is deleted, we direct users to the topic show view.
+
+With PostsController updated to reflect our nested routes, all the tests in  posts_controller_spec.rb should pass. Run the tests again to confirm and then we'll proceed to updating our views:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+#### Refactor the Topics Show View
+The topic show view includes a button that links to new_post_path(@post). As the rails output shows, new_post_path is no longer available. (In fact, if you visit a topic's show view, you'll see a NoMethodError complaining about this.) We need to replace the old method with new_topic_post_path to reflect the nested route we generated in  routes.rb:
+
+app/views/topics/show.html.erb
+```
+ <h1><%= @topic.name %></h1>
+
+ <%= link_to "Edit Topic", edit_topic_path, class: 'btn btn-success' %>
+ <%= link_to "Delete Topic", @topic, method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this topic?' } %>
+
+ <div class="row">
+   <div class="col-md-8">
+     <p class="lead"><%= @topic.description %></p>
+     <% @topic.posts.each do |post| %>
+       <div class="media">
+         <div class="media-body">
+           <h4 class="media-heading">
+ <!-- #39 -->
+             <%= link_to post.title, post %>
+             <%= link_to post.title, topic_post_path(@topic, post) %>
+           </h4>
+ <!-- #40 -->
+           <small>
+             submitted <%= time_ago_in_words(post.created_at) %> ago <br>
+             <%= post.comments.count %> Comments
+           </small>
+         </div>
+       </div>
+     <% end %>
+   </div>
+   <div class="col-md-4">
+ <!-- #41 -->
+     <%= link_to "New Post", new_post_path(@topic), class: 'btn btn-success' %>
+     <%= link_to "New Post", new_topic_post_path(@topic), class: 'btn btn-success' %>
+     <%= link_to "Delete Topic", @topic, method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this topic?' } %>
+   </div>
+ </div>
+ ```
+At #39, we refactor how we link to individual posts using the topic_post_path method. This helper takes a topic and a post and generates a path to the posts show view.
+
+At #40, we add submission and comment details for each post in the show view.
+
+At #41, we replace new_post_path with new_topic_post_path to reflect the nested route we generated in routes.rb.
+
+Visit a topic's show view, and confirm that there is no longer an error.
+
+#### Refactor the Posts Show View
+Each link in the topic show view contains a properly nested and RESTful URL for its associated posts. Click on one of the links to an individual post, and you'll see an  Undefined Method edit_post_path error.
+
+app/views/posts/show.html.erb
+```
+ <h1><%= @post.title %></h1>
+
+ <div class="row">
+   <div class="col-md-8">
+     <p><%= @post.body %></p>
+   </div>
+   <div class="col-md-4">
+     <%= link_to "Edit", edit_post_path(@post), class: 'btn btn-success' %>
+     <%= link_to "Delete Post", @post, method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this post?' } %>
+ // #42
+     <%= link_to "Edit", edit_topic_post_path(@post.topic, @post), class: 'btn btn-success' %>
+ // #43
+     <%= link_to "Delete Post", [@post.topic, @post], method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this post?' } %>
+   </div>
+ </div>
+ ```
+At #42, we replace edit_post_path with edit_topic_post_path, which takes two arguments, a topic and a post.
+
+At #43, we update link_to to take an array consisting of a topic and post, which it uses to build the link to delete a nested post.
+
+Refresh the post show view and the error should be resolved because we used valid methods to generate the URLs for the Edit and Delete Post buttons.
+
+#### Refactor the Posts Edit and New Views
+If you click on the Edit button in the post show view, you'll get another undefined method error. This is because form_for uses similar path conventions as link_to. You've learned how to fix this with the link_to method, and we'll use the same approach for form_for:
+
+app/views/posts/edit.html.erb
+```
+ ...
+     <%= form_for @post do |f| %>
+     <%= form_for [@post.topic, @post] do |f| %>
+ ...
+ ```
+app/views/posts/new.html.erb
+```
+     <%= form_for @post do |f| %>
+     <%= form_for [@topic, @post] do |f| %>
+     ```
+Just like link_to, form_for can take an array of objects instead of a single object to generate the correct paths for nested resources.
+
+Refresh the posts edit view to confirm that we've resolved the error.
+
+Top Notch Topics
+The topics index view is the gateway to our application, so we should give users an easy way to access it from any page by updating application.html.erb:
+
+app/views/layouts/application.html.erb
+```
+ <!DOCTYPE html>
+ <html>
+ <head>
+   <title>Bloccit</title>
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   <%= stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track' => true %>
+   <%= javascript_include_tag 'application', 'data-turbolinks-track' => true %>
+   <%= csrf_meta_tags %>
+ </head>
+ <body>
+   <div class="container">
+     <ul class="nav nav-tabs">
+       <li><%= link_to "Bloccit", root_path %></li>
+       <li><%= link_to "Topics", topics_path %></li>
+       <li><%= link_to "About", about_path %></li>
+ ...
+        ```
+Visit any page in Bloccit we'll see a link to our topics index view. Create, update, and delete some topics and posts to confirm that everything is working as expected.
+        
+ 
