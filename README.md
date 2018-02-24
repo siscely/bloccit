@@ -408,12 +408,11 @@ CSS Selectors in Rails
 Let's use CSS to modify the font color of <h1> tags :
 
 app/assets/stylesheets/welcome.scss
-```
  ...
  h1 {
    color: red;
  }
- ```
+
 View the index and about pages. The content between the <h1> tags should be red now. There are a few important things to note about the code above:
 
 The CSS we added was in the welcome.scss file. When we ran  rails generate controller, welcome.scss was created. By Rails convention, each controller has a corresponding stylesheet and view.
