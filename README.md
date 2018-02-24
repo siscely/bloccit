@@ -3865,4 +3865,314 @@ Try creating valid and invalid users. Your results should look similar to the im
 Successful User Creation
 ... and if you try to create an invalid user, with a mismatching Password and Password Confirmation:
 
+## Authentication -Signing-in
+Now that users can sign up for Bloccit, they'll need to be able to sign in. Signing in to an application requires user information to persist while a user is signed in to Bloccit. That is, we must authenticate and retain user information so that we know who the user is until they sign out. We'll use a session object to persist a user's information after they sign in to Bloccit.
 
+### Sessions
+
+Generate a session controller without any actions:
+
+Terminal
+$ rails generate controller Sessions
+We'll use this controller to create and destroy a user's session.
+
+TDD the SessionsController
+Let's TDD the routing functions for our session object:
+
+spec/controllers/sessions_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe SessionsController, type: :controller do
+   let(:my_user) { User.create!(name: "Blochead", email: "blochead@bloc.io", password: "password") }
+ 
+   describe "GET new" do
+     it "returns http success" do
+       get :new
+       expect(response).to have_http_status(:success)
+     end
+   end
+ 
+   describe "POST sessions" do
+     it "returns http success" do
+       post :create, params: { session: { email: my_user.email } }
+       expect(response).to have_http_status(:success)
+     end
+ 
+     it "initializes a session" do
+       post :create, params: { session: { email: my_user.email, password: my_user.password } }
+       expect(session[:user_id]).to eq my_user.id
+     end
+ 
+     it "does not add a user id to session due to missing password" do
+       post :create, params: { session: { email: my_user.email } }
+       expect(session[:user_id]).to be_nil
+     end
+ 
+     it "flashes #error with bad email address" do
+       post :create, params: { session: { email: "does not exist" } }
+       expect(flash.now[:alert]).to be_present
+     end
+ 
+     it "renders #new with bad email address" do
+       post :create, params: { session: { email: "does not exist" } }
+       expect(response).to render_template :new
+     end
+ 
+     it "redirects to the root view" do
+       post :create, params: { session: { email: my_user.email, password: my_user.password } }
+       expect(response).to redirect_to(root_path)
+     end
+   end
+ end
+ ```
+Run the spec to see the seven new examples and failures:
+
+Terminal
+$ rspec spec/controllers/sessions_controller_spec.rb
+Let's add some tests for destroy:
+
+spec/controllers/sessions_controller_spec.rb
+```
+...
+
+   describe "DELETE sessions/id" do
+     it "render the #welcome view" do
+       delete :destroy, params: { id: my_user.id }
+       expect(response).to redirect_to root_path
+     end
+ 
+     it "deletes the user's session" do
+       delete :destroy, params: { id: my_user.id }
+       expect(assigns(:session)).to be_nil
+     end
+ 
+     it "flashes #notice" do
+       delete :destroy, params: { id: my_user.id }
+       expect(flash[:notice]).to be_present
+     end
+   end
+
+...
+```
+We have tests for signing in. Run them and see that all ten fail.
+
+Let's add a test to users_controller_spec.rb that checks a user is signed in after signing up:
+
+spec/controllers/users_controller_spec.rb
+```
+...
+     it "sets user password_confirmation properly" do
+       post :create, params: { user: new_user_attributes }
+       expect(assigns(:user).password_confirmation).to eq new_user_attributes[:password_confirmation]
+     end
+
+     it "logs the user in after sign up" do
+       post :create, params: { user: new_user_attributes }
+       expect(session[:user_id]).to eq assigns(:user).id
+     end
+   end
+ end
+ ```
+Next, we'll code the actions in the SessionsController to pass these tests.
+
+#### SessionsController
+Per our spec, we need new, create, and destroy actions for SessionsController:
+
+app/controllers/sessions_controller.rb
+```
+ class SessionsController < ApplicationController
+   def new
+   end
+ 
+   def create
+ # #1
+     user = User.find_by(email: params[:session][:email].downcase)
+
+ # #2
+     if user && user.authenticate(params[:session][:password])
+       create_session(user)
+       flash[:notice] = "Welcome, #{user.name}!"
+       redirect_to root_path
+     else
+       flash.now[:alert] = 'Invalid email/password combination'
+       render :new
+     end
+   end
+ 
+   def destroy
+ # #3
+     destroy_session(current_user)
+     flash[:notice] = "You've been signed out, come back soon!"
+     redirect_to root_path
+   end
+ end
+ ```
+At #1, we search the database for a user with the specified email address in the  params hash. We use downcase to normalize the email address since the addresses stored in the database are stored as lowercase strings.
+
+At #2, we verify that user is not nil and that the password in the params hash matches the specified password. The conditional statement will exit early if user is  nil, because it checks for that first. This order of execution will prevent a null pointer exception when user.authenticate is called if user is nil. If the user is successfully authenticated, we call a create_session function (which we have yet to define), display a flash notice, and then redirect the user to root_path. If authentication was not successful, we flash a warning message and render the new view.
+
+At #3, we define destroy. This method will delete a user's session. destroy logs the user out by calling destroy_session(current_user), flashes a notice that they've been logged out, and redirects them to root_path.
+
+We called create_session and destroy_session methods that do not exist yet in  SessionsController. When we generated the controller, Rails created a file named  app/helpers/sessions_helper.rb where we can put helper methods for  SessionController. Open SessionsHelper and code create_session and  destroy_session:
+
+Calling create_session and destroy_session before they exist is another example of "wishful coding". Wishful coding helps you stay focused on one problem at a time, and is a useful strategy for efficient programming.
+
+app/helpers/sessions_helper.rb
+```
+ module SessionsHelper
+ # #4
+   def create_session(user)
+     session[:user_id] = user.id
+   end
+ 
+ # #5
+   def destroy_session(user)
+     session[:user_id] = nil
+   end
+ 
+ # #6
+   def current_user
+     User.find_by(id: session[:user_id])
+   end
+ end
+ ```
+At #4, we define create_session. create_session sets user_id on the session object to user.id, which is unique for each user. session is an object Rails provides to track the state of a particular user. There is a one-to-one relationship between session objects and user ids. A one-to-one relationship means that a session object can only have one user id and a user id is related to one session object.
+
+At #5, we define destroy_session. We clear the user id on the session object by setting it to nil, which effectively destroys the user session because we can't track it via their user id any longer.
+
+At #6, we define current_user, which returns the current user of the application.  current_user encapsulates the pattern of finding the current user that we would otherwise call throughout Bloccit. Thus we won't have to constantly call  User.find_by(id: session[:user_id]); current_user is our shortcut to that functionality. current_user finds the signed-in user by taking the user id from the session and searching the database for the user in question. When the user closes Bloccit, the related session object will be destroyed. Because our session only stores the user id, we need to retrieve the  User instance, and all of its properties, by searching the database for the record with the corresponding user id.
+
+SessionsController has no way of finding create_session - it won't recognize it as a valid method. We need to include SessionsHelper either directly in  SessionsController, or in ApplicationController (which SessionsController inherits from). Let's add it to ApplicationController, since we'll need to use it in other controllers later:
+
+app/controllers/application_controller.rb
+```
+   protect_from_forgery with: :exception
+   include SessionsHelper
+ end
+ ```
+Run the tests again and they will still fail since we haven't added the routes. Add the appropriate routes:
+
+config/routes.rb
+```
+...
+
+   resources :users, only: [:new, :create]
+
+   resources :sessions, only: [:new, :create, :destroy]
+
+...
+```
+Check the new session routes from the command line:
+
+Terminal
+$ rails routes | grep session
+Run the tests for SessionsController again:
+
+Terminal
+$ rspec spec/controllers/sessions_controller_spec.rb
+Our tests still fail even though we've added our routes because SessionsController cannot find a new.html.erb template in views/sessions. The template does not exist yet because we generated the controller without specifying any actions, so we'll need to manually create the new view:
+
+Terminal
+$ touch app/views/sessions/new.html.erb
+Run the tests again, and they should pass:
+
+Terminal
+$ rspec spec/controllers/sessions_controller_spec.rb
+User Interface
+Sessions are unlike our other objects in Bloccit in that there is no tangible representation of a session, like there is for a user, for example. A session keeps track of a user's state - signed in or signed out. Let's update Bloccit to show whether a user is signed in or not. We'll add a Sign In link to the welcome page similar to our Sign Up link:
+
+app/views/welcome/index.html.erb
+```
+ ...
+       <%= link_to "Sign In", new_session_path %> or
+       <%= link_to "Sign Up", new_user_path, class: 'btn btn-primary' %> today!
+ ...
+ ```
+Let's add a "Sign In" link to the navigation:
+
+app/views/layouts/application.html.erb
+```
+ ...
+         <li class="pull-right"><%= link_to "Sign Up", new_user_path %></li>
+         <% if current_user %>
+           <li class="pull-right"><%= link_to "#{current_user.name} -Sign Out", session_path(current_user), method: :delete %></li>
+         <% else %>
+           <li class="pull-right"><%= link_to "Sign In", new_session_path %></li>
+           <li class="pull-right"><%= link_to "Sign Up", new_user_path %></li>
+         <% end %>
+ ...
+ ```
+Let's complete the new view so users can sign in:
+
+app/views/sessions/new.html.erb
+```
+ <h2>Sign in</h2>
+ 
+ <div class="row">
+   <div class="col-md-8">
+     <%= form_for :session, url: sessions_path do |f|  %>
+       <div class="form-group">
+         <%= f.label :email %>
+         <%= f.email_field :email, autofocus: true, class: 'form-control', placeholder: "Enter email" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :password %>
+         <%= f.password_field :password, class: 'form-control', placeholder: "Enter password" %>
+       </div>
+       <div class="form-group">
+         <%= f.label :remember_me, class: 'checkbox' do %>
+           Remember Me <%= f.check_box :remember_me, class: "remember-checkbox"  %>
+         <% end %>
+         <%= f.submit "Sign in", class: 'btn btn-success' %>
+       </div>
+     <% end %>
+   </div>
+ </div>
+ ```
+If we were to look at the page, the 'Remember Me' box may look misaligned. We can fix this by adding the following CSS to our app/assets/stylesheets/sessions.scss file:
+
+~app/assets/stylesheets/sessions.scss
+```
+
+.remember-checkbox {
+  margin-left: 10px;
+}
+```
+Open the new view by navigating to http://localhost:3000/sessions/new, and try to sign in with a valid Email and Password. You should be successfully signed in to Bloccit.
+
+Sign In New users
+Now that we can sign in users, let's automatically sign in users after they sign up.
+
+First, run the tests to see a failure:
+
+Terminal
+$ rspec spec/controllers/users_controller_spec.rb
+To pass this test, update UsersController:
+
+app/controllers/users_controller.rb
+```
+ class UsersController < ApplicationController
+   def new
+     @user = User.new
+   end
+
+   def create
+     @user = User.new
+     @user.name = params[:user][:name]
+     @user.email = params[:user][:email]
+     @user.password = params[:user][:password]
+     @user.password_confirmation = params[:user][:password_confirmation]
+
+     if @user.save
+       flash[:notice] = "Welcome to Bloccit #{@user.name}!"
+       create_session(@user)
+       redirect_to root_path
+     else
+       flash.now[:alert] = "There was an error creating your account. Please try again."
+       render :new
+     end
+   end
+ end
+ ```
+With this change, users_controller_spec.rb passes and new users are seamlessly signed into Bloccit.
