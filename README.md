@@ -4853,4 +4853,1040 @@ app/models/post.rb
  ```
 The default_scope will order all posts by their created_at date, in descending order, with the most recent posts displayed first. The most recent posts will be displayed first on topic show views (where the posts associated with a topic are listed). Refresh a topic show view and observe the results of these changes.
 
+### Authorization
+Let's start by defining the roles we need for Bloccit, and the actions and resources users will have access to.
+
+We currently have users who can post and comment on Bloccit. We'll call these users members and make member the default user role.
+
+We also want an all-powerful user – a user who can create, edit, and delete topics, posts, and comments at will. Let's call this user the admin.
+
+Finally, we'll have the casual visitor, somebody who hasn't signed up for Bloccit yet. We'll call this user a guest user and let them view everything, but not create, edit, or delete anything.
+
+We end up with this hierarchy of roles and access rights:
+
+1. Role	Authorization Rules
+1. Admin	Can create, update, or delete any topic or post.
+1. Member	Can create, update, or delete only their own posts.
+1. Guest	Can read anything on the site, but can't post until they sign up to become a member.
+Let's move on and prepare our app to use roles.
+
+#### Role Specs
+In order to differentiate users by their roles, we want to have methods to call on instance of User that returns whether or not the user has a specified role:
+```
+user = User.find(10)
+user.role = 'admin'
+user.admin? #=> true
+```
+Let's add some specs to define the behavior we expect for roles:
+
+spec/models/user_spec.rb
+```
+ ...
+   describe "attributes" do
+     ...
+ # #1
+     it "responds to role" do
+       expect(user).to respond_to(:role)
+     end
+ 
+ # #2
+     it "responds to admin?" do
+       expect(user).to respond_to(:admin?)
+     end
+ 
+ # #3
+     it "responds to member?" do
+       expect(user).to respond_to(:member?)
+     end
+   end
+
+   describe "roles" do
+ # #4
+     it "is member by default" do
+       expect(user.role).to eql("member")
+     end
+ 
+ # #5
+     context "member user" do
+       it "returns true for #member?" do
+         expect(user.member?).to be_truthy
+       end
+ 
+       it "returns false for #admin?" do
+         expect(user.admin?).to be_falsey
+       end
+     end
+ 
+ # #6
+     context "admin user" do
+       before do
+         user.admin!
+       end
+ 
+       it "returns false for #member?" do
+         expect(user.member?).to be_falsey
+       end
+ 
+       it "returns true for #admin?" do
+         expect(user.admin?).to be_truthy
+       end
+     end
+   end
+   ```
+At #1, we expect that users will respond to role.
+
+At #2, we expect users will respond to admin?, which will return whether or not a user is an admin. We'll implement this using the ActiveRecord::Enum class.
+
+At #3, we expect users will respond to member?, which will return whether or not a user is a member.
+
+At #4, we expect that users will be assigned the role of member by default.
+
+At #5 and #6, we test member and admin users within separate contexts.
+
+Run user_spec.rb and see our new tests fail:
+
+Terminal
+$ rspec spec/models/user_spec.rb
+
+Let's create the following migration to add a role column to the users table:
+
+Terminal
+$ rails g migration AddRoleToUsers role:integer
+```
+  invoke  active_record
+  create    db/migrate/20150803224903_add_role_to_users.rb
+  ```
+
+Migrate the database using rails db:migrate.
+
+To use the role column as an enum, add the following to User:
+
+app/models/user.rb
+```
+ class User < ApplicationRecord
+   has_many :posts
+
+   before_save { self.email = email.downcase }
+   before_save { self.role ||= :member }
+
+   validates :name, length: { minimum: 1, maximum: 100 }, presence: true
+
+   validates :email,
+             presence: true,
+             uniqueness: { case_sensitive: false },
+             length: { minimum: 3, maximum: 254 }
+   validates :password, presence: true, length: { minimum: 6 }, if: "password_digest.nil?"
+   validates :password, length: { minimum: 6 }, allow_blank: true
+
+   has_secure_password
+
+   enum role: [:member, :admin]
+end
+```
+
+Run user_spec.rb again and see that the role enum passes all the specs, confirming that we've created the member and admin roles for users:
+
+Terminal
+$ rspec spec/models/user_spec.rb
+We're ready to use user roles in our controllers to implement authorization rules for admins and members.
+
+#### Roles in the TopicsController
+Recall our authorization rules:
+
+#### Role	Authorization Rules
+1. Admin	Can create, update, or delete any topic or post.
+1. Member	Can create, update, or delete only their own posts.
+1. Guest	Can read anything on the site, but can't post until they sign up to become a member.
+1. Only admins will be able to create, update, and delete topics. Let's update our  topics_controller_spec.rb to reflect the different roles users can have.  topics_controller_spec.rb should look like this:
+
+spec/controllers/topics_controller_spec.rb
+```
+require 'rails_helper'
+include RandomData
+include SessionsHelper
+
+RSpec.describe TopicsController, type: :controller do
+  let (:my_topic) { Topic.create!(name:  RandomData.random_sentence, description:   RandomData.random_paragraph) }
+
+  context "guest" do
+    describe "GET index" do
+      it "returns http success" do
+        get :index
+        expect(response).to have_http_status(:success)
+      end
+
+      it "assigns Topic.all to topic" do
+        get :index
+        expect(assigns(:topics)).to eq([my_topic])
+      end
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_topic to @topic" do
+        get :show, params: { id: my_topic.id }
+        expect(assigns(:topic)).to eq(my_topic)
+      end
+    end
+
+     describe "GET new" do
+      it "returns http redirect" do
+        get :new
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "POST create" do
+      it "returns http redirect" do
+        post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http redirect" do
+        get :edit, params: { id: my_topic.id }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "PUT update" do
+      it "returns http redirect" do
+        new_name = RandomData.random_sentence
+        new_description = RandomData.random_paragraph
+
+        put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description  } }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "returns http redirect" do
+        delete :destroy, params: { id: my_topic.id }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+  end
+
+  context "member user" do
+    before do
+      user = User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld", role: :member)
+      create_session(user)
+    end
+
+    describe "GET index" do
+      it "returns http success" do
+        get :index
+        expect(response).to have_http_status(:success)
+      end
+
+      it "assigns Topic.all to topic" do
+        get :index
+        expect(assigns(:topics)).to eq([my_topic])
+      end
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_topic to @topic" do
+        get :show, params: { id: my_topic.id }
+        expect(assigns(:topic)).to eq(my_topic)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http redirect" do
+        get :new
+        expect(response).to redirect_to(topics_path)
+      end
+    end
+
+    describe "POST create" do
+      it "returns http redirect" do
+        post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+        expect(response).to redirect_to(topics_path)
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http redirect" do
+        get :edit, params: { id: my_topic.id }
+        expect(response).to redirect_to(topics_path)
+      end
+    end
+
+    describe "PUT update" do
+      it "returns http redirect" do
+        new_name = RandomData.random_sentence
+        new_description = RandomData.random_paragraph
+
+        put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description } }
+        expect(response).to redirect_to(topics_path)
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "returns http redirect" do
+        delete :destroy, params: { id: my_topic.id }
+        expect(response).to redirect_to(topics_path)
+      end
+    end
+  end
+
+  context "admin user" do
+    before do
+      user = User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld", role: :admin)
+      create_session(user)
+    end
+
+    describe "GET index" do
+      it "returns http success" do
+        get :index
+        expect(response).to have_http_status(:success)
+      end
+
+      it "assigns Topic.all to topic" do
+        get :index
+        expect(assigns(:topics)).to eq([my_topic])
+      end
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { id: my_topic.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_topic to @topic" do
+        get :show, params: { id: my_topic.id }
+        expect(assigns(:topic)).to eq(my_topic)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http success" do
+        get :new
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #new view" do
+        get :new
+        expect(response).to render_template :new
+      end
+
+      it "initializes @topic" do
+        get :new
+        expect(assigns(:topic)).not_to be_nil
+      end
+    end
+
+    describe "POST create" do
+      it "increases the number of topics by 1" do
+        expect{ post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } } }.to change(Topic,:count).by(1)
+      end
+
+      it "assigns Topic.last to @topic" do
+        post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+        expect(assigns(:topic)).to eq Topic.last
+      end
+
+      it "redirects to the new topic" do
+        post :create, params: { topic: { name: RandomData.random_sentence, description: RandomData.random_paragraph } }
+        expect(response).to redirect_to Topic.last
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http success" do
+        get :edit, params: { id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #edit view" do
+        get :edit, params: { id: my_topic.id }
+        expect(response).to render_template :edit
+      end
+
+      it "assigns topic to be updated to @topic" do
+        get :edit, params: { id: my_topic.id }
+        topic_instance = assigns(:topic)
+
+        expect(topic_instance.id).to eq my_topic.id
+        expect(topic_instance.name).to eq my_topic.name
+        expect(topic_instance.description).to eq my_topic.description
+      end
+    end
+
+    describe "PUT update" do
+      it "updates topic with expected attributes" do
+        new_name = RandomData.random_sentence
+        new_description = RandomData.random_paragraph
+
+        put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description } }
+
+        updated_topic = assigns(:topic)
+        expect(updated_topic.id).to eq my_topic.id
+        expect(updated_topic.name).to eq new_name
+        expect(updated_topic.description).to eq new_description
+      end
+
+      it "redirects to the updated topic" do
+        new_name = RandomData.random_sentence
+        new_description = RandomData.random_paragraph
+
+        put :update, params: { id: my_topic.id, topic: { name: new_name, description: new_description } }
+        expect(response).to redirect_to my_topic
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "deletes the topic" do
+        delete :destroy, params: { id: my_topic.id }
+        count = Post.where({id: my_topic.id}).size
+        expect(count).to eq 0
+      end
+
+      it "redirects to topics index" do
+        delete :destroy, params: { id: my_topic.id }
+        expect(response).to redirect_to topics_path
+      end
+    end
+  end
+end
+```
+We've divided topics_controller_spec.rb into three contexts: a guest user, a member user, and an admin user. We expect guests and members to be able to view the topic index and show pages, but to be redirected from all other topic actions and views. We expect admins to have access to all topic actions and views.
+
+Run the specs and note the nine failures caused because we are not redirecting guests and members:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb
+Update TopicsController to redirect these users:
+
+app/controllers/topics_controller.rb
+```
+ class TopicsController < ApplicationController
+ # #7
+   before_action :require_sign_in, except: [:index, :show]
+ # #8
+   before_action :authorize_user, except: [:index, :show]
+ ...
+
+   private
+   def topic_params
+     params.require(:topic).permit(:name, :description, :public)
+   end
+ 
+ # #9
+   def authorize_user
+     unless current_user.admin?
+       flash[:alert] = "You must be an admin to do that."
+       redirect_to topics_path
+     end
+   end
+ end
+ ```
+At #7, we use the before_action filter and the require_sign_in method from  ApplicationController to redirect guest users who attempt to access controller actions other than index or show.
+
+At #8, we use another before_action filter to check the role of signed-in users. If the  current_user isn't an admin, we'll redirect them to the topics index view.
+
+At #9, we define authorize_user, which is used in #8 to redirect non-admin users to  topics_path (the topics index view).
+
+Run TopicsControllerSpec again and confirm that all the tests are passing:
+
+Terminal
+$ rspec spec/controllers/topics_controller_spec.rb
+Make the first user a member via the Rails console:
+
+Console
+```
+> User.first.member!
+```
+The member! method was generated for us because role is an enum attribute. It allows us to easily update the role.
+
+Sign in to Bloccit with your user and attempt to create, update, and delete a topic. You will be redirected back to the topic index view. Now let's assign our user to be an admin:
+
+Console
+```
+> User.first.admin!
+```
+Confirm that, as an admin user, you can now conduct all CRUD operations on topics.
+
+#### Roles in the PostsController
+Based on our authorization rules, guests will be able view posts; members will be able to create posts and update or delete their own posts; and admins will be able to create, update, or delete any post. Update posts_controller_spec.rb to reflect the different roles user can have. posts_controller_spec.rb should look like this:
+
+spec/controllers/posts_controller_spec.rb
+```
+require 'rails_helper'
+include RandomData
+include SessionsHelper
+
+RSpec.describe PostsController, type: :controller do
+  let(:my_user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+  let(:other_user) { User.create!(name: RandomData.random_name, email: RandomData.random_email, password: "helloworld", role: :member) }
+  let (:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
+  let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: my_user) }
+
+  context "guest" do
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_post to @post" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(assigns(:post)).to eq(my_post)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http redirect" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "POST create" do
+      it "returns http redirect" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http redirect" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "PUT update" do
+      it "returns http redirect" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "returns http redirect" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to(new_session_path)
+      end
+    end
+  end
+
+  context "member user doing CRUD on a post they don't own" do
+    before do
+      create_session(other_user)
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_post to @post" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(assigns(:post)).to eq(my_post)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http success" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #new view" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to render_template :new
+      end
+
+      it "instantiates @post" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(assigns(:post)).not_to be_nil
+      end
+    end
+
+    describe "POST create" do
+      it "increases the number of Post by 1" do
+        expect{ post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+      end
+
+      it "assigns the new post to @post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(assigns(:post)).to eq Post.last
+      end
+
+      it "redirects to the new post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(response).to redirect_to [my_topic, Post.last]
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http redirect" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to([my_topic, my_post])
+      end
+    end
+
+    describe "PUT update" do
+      it "returns http redirect" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+        expect(response).to redirect_to([my_topic, my_post])
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "returns http redirect" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to([my_topic, my_post])
+      end
+    end
+  end
+
+
+  context "member user doing CRUD on a post they own" do
+    before do
+      create_session(my_user)
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_post to @post" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(assigns(:post)).to eq(my_post)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http success" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #new view" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to render_template :new
+      end
+
+      it "instantiates @post" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(assigns(:post)).not_to be_nil
+      end
+    end
+
+    describe "POST create" do
+      it "increases the number of Post by 1" do
+        expect{ post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+      end
+
+      it "assigns the new post to @post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(assigns(:post)).to eq Post.last
+      end
+
+      it "redirects to the new post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(response).to redirect_to [my_topic, Post.last]
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http success" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #edit view" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :edit
+      end
+
+      it "assigns post to be updated to @post" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        post_instance = assigns(:post)
+
+        expect(post_instance.id).to eq my_post.id
+        expect(post_instance.title).to eq my_post.title
+        expect(post_instance.body).to eq my_post.body
+      end
+    end
+
+    describe "PUT update" do
+      it "updates post with expected attributes" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+
+        updated_post = assigns(:post)
+        expect(updated_post.id).to eq my_post.id
+        expect(updated_post.title).to eq new_title
+        expect(updated_post.body).to eq new_body
+      end
+
+      it "redirects to the updated post" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+        expect(response).to redirect_to [my_topic, my_post]
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "deletes the post" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        count = Post.where({id: my_post.id}).size
+        expect(count).to eq 0
+      end
+
+      it "redirects to posts index" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to my_topic
+      end
+    end
+  end
+
+  context "admin user doing CRUD on a post they don't own" do
+    before do
+      other_user.admin!
+      create_session(other_user)
+    end
+
+    describe "GET show" do
+      it "returns http success" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #show view" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :show
+      end
+
+      it "assigns my_post to @post" do
+        get :show, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(assigns(:post)).to eq(my_post)
+      end
+    end
+
+    describe "GET new" do
+      it "returns http success" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #new view" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(response).to render_template :new
+      end
+
+      it "instantiates @post" do
+        get :new, params: { topic_id: my_topic.id }
+        expect(assigns(:post)).not_to be_nil
+      end
+    end
+
+    describe "POST create" do
+      it "increases the number of Post by 1" do
+        expect{ post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } } }.to change(Post,:count).by(1)
+      end
+
+      it "assigns the new post to @post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(assigns(:post)).to eq Post.last
+      end
+
+      it "redirects to the new post" do
+        post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+        expect(response).to redirect_to [my_topic, Post.last]
+      end
+    end
+
+    describe "GET edit" do
+      it "returns http success" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to have_http_status(:success)
+      end
+
+      it "renders the #edit view" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to render_template :edit
+      end
+
+      it "assigns post to be updated to @post" do
+        get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+        post_instance = assigns(:post)
+
+        expect(post_instance.id).to eq my_post.id
+        expect(post_instance.title).to eq my_post.title
+        expect(post_instance.body).to eq my_post.body
+      end
+    end
+
+    describe "PUT update" do
+      it "updates post with expected attributes" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+
+        updated_post = assigns(:post)
+        expect(updated_post.id).to eq my_post.id
+        expect(updated_post.title).to eq new_title
+        expect(updated_post.body).to eq new_body
+      end
+
+      it "redirects to the updated post" do
+        new_title = RandomData.random_sentence
+        new_body = RandomData.random_paragraph
+
+        put :update, params: { topic_id: my_topic.id, id: my_post.id, post: { title: new_title, body: new_body } }
+        expect(response).to redirect_to [my_topic, my_post]
+      end
+    end
+
+    describe "DELETE destroy" do
+      it "deletes the post" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        count = Post.where({id: my_post.id}).size
+        expect(count).to eq 0
+      end
+
+      it "redirects to posts index" do
+        delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+        expect(response).to redirect_to my_topic
+      end
+    end
+  end
+end
+```
+We've divided posts_controller_spec.rb into four contexts:
+
+1. a guest user
+1. a member user modifying another user's post
+1. a member user modifying their own post
+1. an admin user
+Run posts_controller_spec.rb and see the failing tests that result:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+Update PostsController to use authorization:
+
+app/controllers/posts_controller.rb
+```
+ class PostsController < ApplicationController
+   before_action :require_sign_in, except: :show
+ # #10
+   before_action :authorize_user, except: [:show, :new, :create]
+ ...
+
+   private
+   def post_params
+     params.require(:post).permit(:title, :body)
+   end
+ 
+   def authorize_user
+     post = Post.find(params[:id])
+ # #11
+     unless current_user == post.user || current_user.admin?
+       flash[:alert] = "You must be an admin to do that."
+       redirect_to [post.topic, post]
+     end
+   end
+ end
+ ```
+At #10, we use a second before_action filter to check the role of a signed-in user. If the current_user isn't authorized based on their role, we'll redirect them to the posts show view.
+
+At #11 we redirect the user unless they own the post they're attempting to modify, or they're an admin.
+
+Run posts_controller_spec.rb and confirm that all the tests are passing:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+Update the first user via the Rails console:
+
+Console
+> User.first.member!
+Sign in to Bloccit with your user and attempt to update and delete another user's post. You will be redirected to the post show view. Give your user an admin role:
+
+Console
+> User.first.admin!
+Confirm that you can conduct CRUD operations on any post.
+
+#### Seed Users
+Updating a user's role via the Rails console is clunky. Let's add a few special users to  seeds.rb so we can then use them to test different authorization levels in our app:
+
+db/seeds.rb
+```
+ ...
+
+ user = User.first
+ user.update_attributes!(
+   email: 'youremail.com',
+   password: 'helloworld'
+ )
+ # Create an admin user
+ admin = User.create!(
+   name:     'Admin User',
+   email:    'admin@example.com',
+   password: 'helloworld',
+   role:     'admin'
+ )
+ 
+ # Create a member
+ member = User.create!(
+   name:     'Member User',
+   email:    'member@example.com',
+   password: 'helloworld'
+ )
+
+ ...
+ ```
+Reseed the database using rails db:reset.
+
+#### Restricting Access to Links
+So far we've restricted controller actions, which ensures no user can perform an action on a resource without proper authorization. But they can still see links to some of these actions. Even though following them without authorization will only result in being redirected with a warning, this is not a good user experience. If a user isn't allowed to perform a certain action, they shouldn't see the option to do so in the first place.
+
+Update the topics index to only display a "New Topic" link to admin users:
+
+app/views/topics/index.html.erb
+```
+ ...
+ <!-- #12 -->
+   <% if current_user && current_user.admin? %>
+     <div class="col-md-4">
+       <%= link_to "New Topic", new_topic_path, class: 'btn btn-success' %>
+     </div>
+   <% end %>
+ </div>
+ ```
+At #12, we check if there is a signed-in current_user, and that current_user is an admin.
+
+Visit the topics index view as a member or guest and confirm that the "New Topic" link is not displayed.
+
+app/helpers/topics_helper.rb
+```
+ module TopicsHelper
+   def user_is_authorized_for_topics?
+        current_user && current_user.admin?
+   end
+ end
+ ```
+Rails helpers are automatically available to their corresponding views. This means that methods defined in TopicsHelper will be available in all the topic views.
+
+Use user_is_authorized_for_topics? in the topic index view:
+
+app/views/topics/index.html.erb
+```
+ ...
+   <% if current_user && current_user.admin? %>
+   <% if user_is_authorized_for_topics? %>
+     <div class="col-md-4">
+       <%= link_to "New Topic", new_topic_path, class: 'btn btn-success' %>
+     </div>
+   <% end %>
+ </div>
+ ```
+Refresh the topics index view, the "New Topic" link continues to be hidden for guests and members. Update the topics show view so that only admins see the links to update or delete a topic:
+
+app/views/topics/show.html.erb
+```
+ <h1><%= @topic.name %></h1>
+
+ <% if user_is_authorized_for_topics? %>
+   <%= link_to "Edit Topic", edit_topic_path, class: 'btn btn-success' %>
+   <%= link_to "Delete Topic", @topic, method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this topic?' } %>
+ <% end %>
+ ```
+Visit the topics show view as a member or guest and confirm that the links are not displayed. Using an admin user, confirm that the links are displayed.
+
+Let's also update the topics show view to only show the "New Post" link to signed-in users:
+
+app/views/topics/show.html.erb
+```
+   <% if current_user %>
+     <div class="col-md-4">
+       <%= link_to "New Post", new_topic_post_path(@topic), class: 'btn btn-success' %>
+     </div>
+   <% end %>
+ </div>
+ ```
+Finally, on the posts show view, we only want to display the "Edit Post" and "Delete Post" links to the creator of the post or to admin users. Let's create a helper method in PostsHelper:
+
+app/helpers/posts_helper.rb
+```
+ module PostsHelper
+   def user_is_authorized_for_post?(post)
+        current_user && (current_user == post.user || current_user.admin?)
+   end
+ end
+ ```
+authorize_user_for_post checks if there is a signed-in current_user, and if that  current_user either owns the post, or is an admin.
+
+Let's use this helper in the posts show view:
+
+app/views/posts/show.html.erb
+```
+ ...
+   <% if user_is_authorized_for_post?(@post) %>
+     <div class="col-md-4">
+       <%= link_to "Edit Post", edit_topic_post_path(@post.topic, @post), class: 'btn btn-success' %>
+       <%= link_to "Delete Post", [@post.topic, @post], method: :delete, class: 'btn btn-danger', data: { confirm: 'Are you sure you want to delete this post?' } %>
+     </div>
+   <% end %> </div>
+   ```
+Use a member user and go to another user's post. You won't see links to edit or delete the post. Create a new post and confirm that you can edit and delete it. Finally, use an admin user and confirm you can update any post.
 
