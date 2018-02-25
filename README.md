@@ -4176,3 +4176,681 @@ app/controllers/users_controller.rb
  end
  ```
 With this change, users_controller_spec.rb passes and new users are seamlessly signed into Bloccit.
+
+To allow ownership of posts, we'll need to associate the Post and User models. Let's write tests for this association first:
+
+spec/models/user_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe User, type: :model do
+   let(:user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "password") }
+
+   it { is_expected.to have_many(:posts) }
+
+   it { is_expected.to validate_presence_of(:name) }
+   it { is_expected.to validate_length_of(:name).is_at_least(1) }
+ ...
+ ```
+... and now we'll add User scope to our post tests:
+
+spec/models/post_spec.rb
+```
+ ...
+   let(:title) { RandomData.random_sentence }
+   let(:body) { RandomData.random_paragraph }
+   let(:topic) { Topic.create!(name: name, description: description) }
+   let(:post) { topic.posts.create!(title: title, body: body) }
+ # #1
+   let(:user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+ # #2
+   let(:post) { topic.posts.create!(title: title, body: body, user: user) }
+
+   it { is_expected.to belong_to(:topic) }
+   it { is_expected.to belong_to(:user) }
+
+   it { is_expected.to validate_presence_of(:title) }
+   it { is_expected.to validate_presence_of(:body) }
+   it { is_expected.to validate_presence_of(:topic) }
+   it { is_expected.to validate_presence_of(:user) }
+
+   it { is_expected.to validate_length_of(:title).is_at_least(5) }
+   it { is_expected.to validate_length_of(:body).is_at_least(20) }
+
+   describe "attributes" do
+     it "has a title and body attribute" do
+       expect(post).to have_attributes(title: title, body: body)
+     it "has a title, body, and user attribute" do
+       expect(post).to have_attributes(title: title, body: body, user: user)
+     end
+   end
+ end
+ ```
+At #1, we create a user to associate with a test post.
+
+At #2, we associate user with post when we create the test post.
+
+We'll also need to update comment_spec.rb to reflect the new association since comments belong to posts, and we'll now be unable to create posts without a user:
+
+spec/models/comment_spec.rb
+```
+ RSpec.describe Comment, type: :model do
+   let(:topic) { Topic.create!(name: RandomData.random_sentence, description: RandomData.random_paragraph) }
+   let(:post) { topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph) }
+   let(:user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+   let(:post) { topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: user) }
+   let(:comment) { Comment.create!(body: 'Comment Body', post: post) }
+
+   describe "attributes" do
+ ...
+ ```
+Finally, we need to update posts_controller_spec.rb for the post and user association. Add a user for my_post to belong to:
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+
+ RSpec.describe PostsController, type: :controller do
+   let(:my_user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+   let(:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
+   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph) }
+   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: my_user) }
+
+ ...
+ ```
+Run the specs and see a number of failures due to the fact that users and posts are not associated:
+
+Terminal
+$ rspec spec
+To associate users and posts, we'll use a standalone migration to add a user_id column to the posts table. The user_id (foreign key) will allow a user to have many posts and allow a post to belong to a user.
+
+On the command line, generate a new migration:
+
+Terminal
+$ rails g migration AddUserToPosts user_id:integer:index
+      invoke  active_record
+      create    db/migrate/20150720221814_add_user_to_posts.rb
+
+db/migrate/20150720221814_add_user_to_posts.rb
+```
+class AddUserToPosts < ActiveRecord::Migration
+  def change
+    add_column :posts, :user_id, :integer
+    add_index :posts, :user_id
+  end
+end
+```
+We added an index to the user_id column. 
+
+Migrate the database:
+
+Terminal
+$ rails db:migrate
+```
+== 20150720221814 AddUserToPosts: migrating ===================================
+-- add_column(:posts, :user_id, :integer)
+   -> 0.0008s
+-- add_index(:posts, :user_id)
+   -> 0.0010s
+== 20150720221814 AddUserToPosts: migrated (0.0019s) ==========================
+```
+Now that we have the database structure to support the user and post association, let's update the models. Open Post and add the belongs_to declaration:
+
+app/models/post.rb
+```
+ class Post < ApplicationRecord
+   belongs_to :topic
+   belongs_to :user
+   has_many :comments, dependent: :destroy
+
+   validates :title, length: { minimum: 5 }, presence: true
+   validates :body, length: { minimum: 20 }, presence: true
+   validates :topic, presence: true
+   validates :user, presence: true
+ end
+ ```
+Open user.rb and add the has_many declaration:
+
+app/models/user.rb
+```
+  class User < ApplicationRecord
+    has_many :posts, dependent: :destroy
+   ...
+  end
+  ```
+Run the full spec to confirm that post_spec.rb, user_spec.rb, and comment_spec.rb are all passing:
+
+Terminal
+$ rspec spec
+We still have failures in our posts_controller_spec.rb because we haven't updated  PostsController to create posts with associated users. Before we do that, let's seed updated posts into our database to ensure all our posts are associated with users.
+
+### Updating Seeds
+The posts in our database have no associated users because we haven't updated  seeds.rb to create posts scoped to users. Let's update seeds.rb so that the next time we seed the database, posts will be scoped to users:
+
+db/seeds.rb
+```
+ # Create Users
+ 5.times do
+   User.create!(
+ # #3
+   name:     RandomData.random_name,
+   email:    RandomData.random_email,
+   password: RandomData.random_sentence
+   )
+ end
+ users = User.all
+
+ # Create Topics
+ 15.times do
+   Topic.create!(
+     name:         RandomData.random_sentence,
+     description:  RandomData.random_paragraph
+   )
+ end
+ topics = Topic.all
+
+ # Create Posts
+ 50.times do
+   Post.create!(
+     user:   users.sample,
+     topic:  topics.sample,
+     title:  Faker::Lorem.sentence,
+     body:   Faker::Lorem.paragraph
+   )
+ end
+ posts = Post.all
+
+ ...
+
+ puts "Seed finished"
+ puts "#{User.count} users created"
+ puts "#{Topic.count} topics created"
+ puts "#{Post.count} posts created"
+ puts "#{Comment.count} comments created"
+ ```
+At #3, we wishful-coded two methods that we'll need to add to RandomData:
+
+lib/random_data.rb
+```
+ module RandomData
+   def self.random_name
+     first_name = random_word.capitalize
+     last_name = random_word.capitalize
+     "#{first_name} #{last_name}"
+   end
+ 
+   def self.random_email
+     "#{random_word}@#{random_word}.#{random_word}"
+   end
+ ...
+ ```
+It's helpful to modify one user that we can use to sign in and test functionality. This will eliminate the burden of creating a new test user every time we refresh the database. Add the following, using your own email address:
+
+db/seeds.rb
+```
+
+ ...
+
+ user = User.first
+ user.update_attributes!(
+   email: 'youremail.com', # replace this with your personal email
+   password: 'helloworld'
+ )
+
+ puts "Seed finished"
+ puts "#{User.count} users created"
+ puts "#{Topic.count} topics created"
+ puts "#{Post.count} posts created"
+ puts "#{Comment.count} comments created"
+ ```
+Let's reset the database with user-scoped posts:
+
+Terminal
+$ rails db:reset
+rails db:reset drops the database and uses the seed file to repopulate it.
+
+You should see an output similar to: (truncated for brevity)
+
+Terminal
+...
+Seed finished
+5 users created
+10 topics creates
+50 posts created
+100 comments created
+Testing the Association
+It's often helpful to test new associations in the Rails console. Launch the console from the command line and create a user:
+
+Terminal
+$ rails c
+```
+>> u = User.create!(name: "Bloccer", email: "user@bloccit.com", password: "helloworld")
+Retrieve all posts for u using the posts method that was automatically generated by  has_many :posts:
+
+Console
+>> u.posts
+We haven't created any user-specific posts, so the posts method will return an empty results collection:
+
+Console
+  Post Load (0.2ms)  SELECT "posts".* FROM "posts" WHERE "posts"."user_id" = 1
+=> #<ActiveRecord::Associations::CollectionProxy []>
+CollectionProxy is an array-like object provided by Rails that allows method chaining and generates performant SQL queries. There aren't any posts associated with the user instance u, thus the collection proxy shows [], which symbolizes an empty array.
+
+Create a post and scope it to a user:
+
+Console
+>> u.posts.create!(topic: Topic.first, title: "New Post", body: "This is a new post in Bloccit!")
+We should see:
+
+Console
+  Topic Load (0.2ms)  SELECT  "topics".* FROM "topics"  ORDER BY "topics"."id" ASC LIMIT 1
+   (0.0ms)  begin transaction
+  SQL (0.3ms)  INSERT INTO "posts" ("topic_id", "title", "body", "user_id", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?)  [["topic_id", 7], ["title", "New Post"], ["body", "This is a new post in Bloccit!"], ["user_id", 1], ["created_at", "2015-07-21 01:12:04.533450"], ["updated_at", "2015-07-21 01:12:04.533450"]]
+   (1.5ms)  commit transaction
+=> #<Post id: 54, title: "New Post", body: "This is a new post in Bloccit!", created_at: "2015-07-21 01:12:04", updated_at: "2015-07-21 01:12:04", topic_id: 7, user_id: 1>
+Count the posts for the user u:
+
+Console
+>> u.posts.count
+   (0.3ms)  SELECT COUNT(*) FROM "posts" WHERE "posts"."user_id" = 1
+=> 1
+```
+Because we created the post within the scope of a user, Rails automatically added the user_id to the post.
+
+#### Updating PostsController
+A user who is signed in and creates a post should own the post. Recall that we use  current_user in SessionsHelper to designate the user who is signed in. We need to update the create method in PostsController to create user-scoped posts that belong to the user returned by current_user. Before we do that, we'll want to make sure that users are signed in before allowing them to create or update a post, otherwise the value of current_user will be nil and assigning it to the post will cause our validations to fail. Let's update posts_controller_spec.rb to test that guest (un-signed-in) users are redirected if they attempt to create or update a post:
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+ # #4
+ include SessionsHelper
+
+ RSpec.describe PostsController, type: :controller do
+   let(:my_user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+   let(:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
+   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: my_user) }
+
+ # #5
+   context "guest user" do
+ # #6
+     describe "GET show" do
+       it "returns http success" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to have_http_status(:success)
+       end
+ 
+       it "renders the #show view" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to render_template :show
+       end
+ 
+       it "assigns my_post to @post" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(assigns(:post)).to eq(my_post)
+       end
+     end
+ 
+ # #7
+     describe "GET new" do
+       it "returns http redirect" do
+         get :new, params: { topic_id: my_topic.id }
+ # #8
+         expect(response).to redirect_to(new_session_path)
+       end
+     end
+ 
+     describe "POST create" do
+       it "returns http redirect" do
+         post :create, params: { topic_id: my_topic.id, post: { title: RandomData.random_sentence, body: RandomData.random_paragraph } }
+         expect(response).to redirect_to(new_session_path)
+       end
+     end
+ 
+     describe "GET edit" do
+       it "returns http redirect" do
+         get :edit, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to redirect_to(new_session_path)
+       end
+     end
+ 
+     describe "PUT update" do
+       it "returns http redirect" do
+         new_title = RandomData.random_sentence
+         new_body = RandomData.random_paragraph
+ 
+         put :update, params: { topic_id: my_topic.id, id: my_post.id, post: {title: new_title, body: new_body } }
+         expect(response).to redirect_to(new_session_path)
+       end
+     end
+ 
+     describe "DELETE destroy" do
+       it "returns http redirect" do
+         delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to have_http_status(:redirect)
+       end
+     end
+   end
+ ...
+ ```
+At #4, we add SessionsHelper so that we can use the create_session(user) method later in the spec.
+
+At #5, we add a context for a guest (un-signed-in) user. Contexts organize tests based on the state of an object.
+
+At #6, we define the show tests, which allow guests to view posts in Bloccit.
+
+At #7, we define tests for the other CRUD actions. We won't allow guests to access the  create, new, edit, update, or destroy actions.
+
+At #8, we expect guests to be redirected if they attempt to create, update, or delete a post.
+
+Our existing specs reside at #9, which we'll update soon to test that signed in users are able to create posts.
+
+Run the guest user section of the spec and view the four failed tests:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e "guest user"
+To pass the tests let's first implement the logic needed to redirect guest users in  ApplicationController:
+
+app/controllers/application_controller.rb
+```
+ class ApplicationController < ActionController::Base
+   protect_from_forgery with: :exception
+   include SessionsHelper
+
+   private
+ # #10
+   def require_sign_in
+     unless current_user
+       flash[:alert] = "You must be logged in to do that"
+ # #11
+       redirect_to new_session_path
+     end
+   end
+end
+```
+At #10, we define require_sign_in to redirect un-signed-in users. We define this method in ApplicationController because we'll eventually want to call it from other controllers.
+
+Remember that controllers are classes, and all controllers inherit from the  ApplicationController class.
+
+At #11, we redirect un-signed-in users to the sign-in page.
+
+Use require_sign_in in PostsController to redirect guest users from actions they won't be able to access:
+
+app/controllers/posts_controller.rb
+```
+class PostsController < ApplicationController
+ # #12
+   before_action :require_sign_in, except: :show
+ ...
+ ```
+At #12, we use a before_action filter to call the require_sign_in method before each of our controller actions, except for the show action.
+
+Run the guest user section of the spec again:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e "guest user"
+Now that we've made sure users are signed in before allowing them to create or update a post, let's update the create method in PostsController to create user-scoped posts. Update the signed-in user specs in posts_controller_spec.rb:
+
+spec/controllers/posts_controller_spec.rb
+```
+ require 'rails_helper'
+ include SessionsHelper
+
+ RSpec.describe PostsController, type: :controller do
+   let(:my_user) { User.create!(name: "Bloccit User", email: "user@bloccit.com", password: "helloworld") }
+   let(:my_topic) { Topic.create!(name:  RandomData.random_sentence, description: RandomData.random_paragraph) }
+   let(:my_post) { my_topic.posts.create!(title: RandomData.random_sentence, body: RandomData.random_paragraph, user: my_user) }
+
+   context "guest user" do
+     describe "GET show" do
+       it "returns http success" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to have_http_status(:success)
+       end
+
+       it "renders the #show view" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to render_template :show
+       end
+
+       it "assigns my_post to @post" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(assigns(:post)).to eq(my_post)
+       end
+     end
+
+     ...
+
+     describe "DELETE destroy" do
+       it "returns http redirect" do
+         delete :destroy, topic_id: my_topic.id, id: my_post.id
+         expect(response).to have_http_status(:redirect)
+       end
+     end
+   end
+
+ # #13
+   context "signed-in user" do
+     before do
+       create_session(my_user)
+     end
+
+     describe "GET show" do
+       it "returns http success" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to have_http_status(:success)
+       end
+
+       it "renders the #show view" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to render_template :show
+       end
+
+       it "assigns my_post to @post" do
+         get :show, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(assigns(:post)).to eq(my_post)
+       end
+     end
+
+     ...
+
+     describe "DELETE destroy" do
+       it "deletes the post" do
+         delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+         count = Post.where({id: my_post.id}).size
+         expect(count).to eq 0
+       end
+
+       it "redirects to topic show" do
+         delete :destroy, params: { topic_id: my_topic.id, id: my_post.id }
+         expect(response).to redirect_to my_topic
+       end
+     end
+   end
+ end
+ ```
+The ... signify the code between describe "GET show" do and  describe "DELETE destroy" do; do not remove that code from your file.
+
+At #13, we wrap our existing specs in a context so that they become our signed-in user specs. Remember to indent all the code we've just wrapped in this context.
+
+Run the specs for a signed-in user and note the failures caused by the create action:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb -e "signed-in user"
+Update PostsController to associate new posts with the current_user:
+
+app/controllers/posts_controller.rb
+```
+ ...
+   def create
+     @post = Post.new
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+     @topic = Topic.find(params[:topic_id])
+     @post.topic = @topic
+ # #14
+     @post.user = current_user
+  ...
+  ```
+At #14, we assign @post.user in the same way we assigned @post.topic, to properly scope the new post.
+
+Run posts_controller_spec.rb a final time to confirm that all tests are passing as expected:
+
+Terminal
+$ rspec spec/controllers/posts_controller_spec.rb
+We're now associating posts with the user who created them.
+
+#### Mass Assignment and Strong Parameters
+The create action in PostsController has a "code smell", which is a term to describe code that works, but feels like it could be written better. Watch the following video to learn about strong parameters and how to refactor our controllers to use them, thus removing the unpleasant odor:
+
+
+We made the following changes using mass-assignment and strong parameters:
+
+app/controllers/posts_controller.rb
+```
+ ...
+
+   def create
+     @post = Post.new
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+     @topic = Topic.find(params[:topic_id])
+     @post.topic = @topic
+     @post = @topic.posts.build(post_params)
+     @post.user = current_user
+
+     if @post.save
+       flash[:notice] = "Post was saved."
+       redirect_to [@topic, @post]
+     else
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :new
+     end
+   end
+
+ ...
+
+   def update
+     @post = Post.find(params[:id])
+     @post.title = params[:post][:title]
+     @post.body = params[:post][:body]
+     @post.assign_attributes(post_params)
+
+     if @post.save
+       flash[:notice] = "Post was updated."
+       redirect_to [@post.topic, @post]
+     else
+       flash.now[:alert] = "There was an error saving the post. Please try again."
+       render :edit
+     end
+   end
+
+ ...
+
+# remember to add private methods to the bottom of the file. Any method defined below private, will be private.
+   private
+   def post_params
+     params.require(:post).permit(:title, :body)
+   end
+ end
+We also made similar updates to Topics Controller:
+
+app/controllers/topics_controller.rb
+ ...
+
+   def create
+     @topic = Topic.new
+     @topic.name = params[:topic][:name]
+     @topic.description = params[:topic][:description]
+     @topic.public = params[:topic][:public]
+     @topic = Topic.new(topic_params)
+
+     if @topic.save
+       redirect_to @topic, notice: "Topic was saved successfully."
+     else
+       flash.now[:alert] = "Error creating topic. Please try again."
+       render :new
+     end
+   end
+
+ ...
+
+   def update
+     @topic = Topic.find(params[:id])
+ 
+     @topic.name = params[:topic][:name]
+     @topic.description = params[:topic][:description]
+     @topic.public = params[:topic][:public]
+     @topic.assign_attributes(topic_params)
+
+     if @topic.save
+       redirect_to @topic
+     else
+       flash.now[:alert] = "Error saving topic. Please try again."
+       render :edit
+     end
+   end
+
+   ...
+
+   private
+   def topic_params
+     params.require(:topic).permit(:name, :description, :public)
+   end
+ end
+ ```
+Because we refactored code, we should run our specs to confirm that we didn't accidentally break something.
+
+After refactoring code, you should always run your tests as a matter of course.
+
+Terminal
+$ rspec spec
+With our specs passing, we can feel confident about our refactored code.
+
+#### Adding Author Information
+Now that we know who is submitting posts, let's display that information. Open the topics show view and update the <small> section:
+
+app/views/topics/show.html.erb
+```
+ ...
+       <small>
+         submitted <%= time_ago_in_words(post.created_at) %> ago <br>
+         submitted <%= time_ago_in_words(post.created_at) %> ago by <%= post.user.name %> <br>
+         <%= post.comments.count %> Comments
+       </small>
+ ...
+ ```
+Let's also update the posts show view:
+
+app/views/posts/show.html.erb
+```
+ <h1><%= @post.title %></h1>
+ <h1>
+   <%= @post.title %> <br>
+   <small>
+     submitted <%= time_ago_in_words(@post.created_at) %> ago by <%= @post.user.name %>
+   </small>
+ </h1>
+
+ ...
+ ```
+Start the Rails server and open Bloccit to the show view of a topic. Confirm that the post author information is displayed.
+
+#### Scoping Posts
+As the number of posts increases, it will be important to display them in order. We can do this using a scope, which allows us to reference queries as method calls. Rails has a default_scope declaration we can add to Post, which allows us to modify the default order in which posts are retrieved from the database:
+
+This type of scope is different than our usage of "scope" when we discussed post-scoped users. The scope in question here is an actual method provided by Rails, the former usage of scope is simply an adjective to describe a post that belongs to a user.
+
+app/models/post.rb
+```
+ class Post < ApplicationRecord
+   belongs_to :topic
+   belongs_to :user
+   has_many :comments, dependent: :destroy
+
+   default_scope { order('created_at DESC') }
+ ...
+ ```
+The default_scope will order all posts by their created_at date, in descending order, with the most recent posts displayed first. The most recent posts will be displayed first on topic show views (where the posts associated with a topic are listed). Refresh a topic show view and observe the results of these changes.
+
+
